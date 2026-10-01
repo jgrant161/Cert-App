@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Certificate Review{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  {% if refresh %}<meta http-equiv="refresh" content="{{ refresh }}">{% endif %}
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">Certificate Review</a>
+    <span class="mode {{ 'on' if ai_available() else 'off' }}">
+      {% if ai_available() %}AI reading on{% else %}Demo mode: no API key, certificates are not AI-read{% endif %}
+    </span>
+  </header>
+  <main>{% block body %}{% endblock %}</main>
+</body>
+</html>

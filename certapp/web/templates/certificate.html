@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% set refresh = 5 if c.cert.status in ("pending", "processing") else None %}
+{% block title %}{{ c.cert.filename }} · Certificate Review{% endblock %}
+{% block body %}
+<section class="card">
+  <div class="head">
+    <div>
+      <p class="crumb"><a href="/">Engagements</a> / <a href="/e/{{ e.id }}?tab=certificates">{{ e.client_name }}</a></p>
+      <h1 class="file">{{ c.cert.filename }}</h1>
+      <p class="muted">Batch {{ c.cert.batch_label }} · <span class="pill st-{{ c.cert.status }}">{{ c.cert.status }}</span>
+        {% if c.cert.extractor %} · read by {{ c.cert.extractor }}{% endif %}</p>
+    </div>
+    <div class="actions">
+      {% if prev_id %}<a class="button ghost" href="/e/{{ e.id }}/c/{{ prev_id }}">← Previous</a>{% endif %}
+      {% if next_id %}<a class="button ghost" href="/e/{{ e.id }}/c/{{ next_id }}">Next →</a>{% endif %}
+    </div>
+  </div>
+</section>
+
+<div class="split">
+  <section class="card pdf">
+    <iframe src="/e/{{ e.id }}/c/{{ c.cert.id }}/pdf" title="Certificate PDF"></iframe>
+  </section>
+
+  <section class="card">
+    {% if c.cert.status == "error" %}
+      <p class="bad">Could not read this certificate: {{ c.cert.error }}</p>
+      <form method="post" action="/e/{{ e.id }}/c/{{ c.cert.id }}/retry"><button>Try again</button></form>
+    {% endif %}
+
+    <h2>Filename says</h2>
+    <dl class="kv">
+      <dt>Company</dt><dd>{{ fn.company or "—" }}</dd>
+      <dt>Type</dt><dd>{{ fn.cert_type or "—" }}</dd>
+      <dt>State</dt><dd>{{ fn.state or fn.state_token or "—" }} ({{ fn.kind }})</dd>
+    </dl>
+
+    {% if c.extraction %}{% set x = c.extraction %}
+    <h2>Document says</h2>
+    <dl class="kv">
+      <dt>Form</dt><dd>{{ x.form_name or "—" }} ({{ x.form_family|replace("_", " ") }})</dd>
+      <dt>Purchaser</dt><dd>{{ x.purchaser.name or "—" }}{% if x.purchaser.address %}<br><span class="small">{{ x.purchaser.address }}</span>{% endif %}</dd>
+      <dt>Seller</dt><dd>{{ x.seller.name or "—" }}</dd>
+      <dt>Type</dt><dd>{{ x.certificate_type|replace("_", " ") }}{% if x.exemption_reason %} — {{ x.exemption_reason }}{% endif %}</dd>
+      <dt>Signed</dt><dd>{{ {True: "Yes", False: "No", None: "—"}[x.signed] }}{% if x.signature_date %} ({{ x.signature_date }}){% endif %}</dd>
+      <dt>Expires</dt><dd>{{ x.expiration_date or "No date stated" }}</dd>
+      <dt>Confidence</dt><dd>{{ x.confidence }}</dd>
+    </dl>
+    {% endif %}
+
+    {% if c.flags %}
+    <h2>Flags</h2>
+    <ul class="flags">
+      {% for f in c.flags %}<li><span class="pill sev-{{ f.severity }}">{{ f.severity|replace("_", " ") }}</span> {{ f.message }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if c.line_decisions %}
+    <h2>State lines</h2>
+    <table class="grid lines">
+      <thead><tr><th>State</th><th>On the line</th><th>Reading</th><th>Schedule?</th><th></th></tr></thead>
+      <tbody>
+      {% for d in c.line_decisions %}{% set l = d.line %}
+        <tr class="{{ 'in' if d.include else 'out' }}">
+          <td>{{ l.state }}</td>
+          <td class="mono">{{ l.raw_text or "(blank)" }}</td>
+          <td class="small">{{ l.classification|replace("_", " ") }}{% if l.id_issuing_state %} ({{ l.id_issuing_state }} number){% endif %}</td>
+          <td class="small"><b>{{ "Yes" if d.include else "No" }}</b> — {{ d.reason }}</td>
+          <td>
+            <form method="post" action="/e/{{ e.id }}/c/{{ c.cert.id }}/override" class="inline">
+              <input type="hidden" name="state" value="{{ l.state }}">
+              {% if d.override %}
+                <button name="decision" value="clear" class="link">Undo override</button>
+              {% else %}
+                <input type="hidden" name="note" value="">
+                <button name="decision" value="{{ 'exclude' if d.include else 'include' }}" class="link">
+                  {{ "Exclude" if d.include else "Include" }}</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <h2>Review</h2>
+    <form method="post" action="/e/{{ e.id }}/c/{{ c.cert.id }}/review" class="review">
+      <select name="review_status">
+        {% for s in ["open", "reviewed", "follow_up"] %}
+          <option value="{{ s }}" {{ 'selected' if c.cert.review_status == s }}>{{ s|replace("_", " ")|title }}</option>
+        {% endfor %}
+      </select>
+      <textarea name="note" rows="2" placeholder="Reviewer note (appears on the Reconciliation tab)">{{ c.cert.reviewer_note or "" }}</textarea>
+      <button>Save</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

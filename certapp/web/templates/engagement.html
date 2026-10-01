@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% set refresh = 5 if busy and tab not in ("ask", "policy") else None %}
+{% block title %}{{ e.client_name }} · Certificate Review{% endblock %}
+{% block body %}
+<section class="card">
+  <div class="head">
+    <div>
+      <p class="crumb"><a href="/">Engagements</a></p>
+      <h1>{{ e.client_name }}</h1>
+      {% if e.seller_name %}<p class="muted">Seller: {{ e.seller_name }}</p>{% endif %}
+    </div>
+    <div class="actions">
+      <a class="button" href="/e/{{ e.id }}/export.xlsx">Download Excel schedule</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div><b>{{ result.certificates|length }}</b><span>certificates</span></div>
+    <div><b>{{ result.rows|length }}</b><span>schedule rows</span></div>
+    <div><b>{{ result.by_state()|length }}</b><span>states</span></div>
+    <div><b>{{ result.flag_counts()["follow_up"] or 0 }}</b><span>client follow-ups</span></div>
+    <div><b>{{ result.flag_counts()["review"] or 0 }}</b><span>reviewer checks</span></div>
+    <div class="{{ 'warn' if busy else '' }}"><b>{{ statuses.pending + statuses.processing }}</b><span>being read</span></div>
+    {% if statuses.error %}<div class="bad"><b>{{ statuses.error }}</b><span>errors</span></div>{% endif %}
+  </div>
+
+  <form class="upload" method="post" action="/e/{{ e.id }}/upload" enctype="multipart/form-data">
+    <label>Add certificates (PDFs or a .zip)
+      <input type="file" name="files" multiple accept=".pdf,.zip" required></label>
+    <label>Batch label <input name="label" placeholder="e.g. 9.30.26 Certs"></label>
+    <button type="submit">Upload and read</button>
+  </form>
+  {% if statuses.pending and not busy %}
+  <form method="post" action="/e/{{ e.id }}/process"><button>Read pending certificates</button></form>
+  {% endif %}
+</section>
+
+<nav class="tabs">
+  {% for key, label in [("schedule", "Schedule"), ("followup", "Follow-up (" ~ follow|length ~ ")"),
+                        ("certificates", "Certificates"), ("excluded", "Excluded lines"),
+                        ("ask", "Ask about this client"), ("policy", "Review policy"), ("batches", "Batches")] %}
+    <a href="?tab={{ key }}" class="{{ 'active' if tab == key else '' }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+
+<section class="card">
+{% if tab == "schedule" %}
+  <form class="row filter" method="get">
+    <input type="hidden" name="tab" value="schedule">
+    <input name="q" value="{{ q }}" placeholder="Search company, file, or number">
+    <select name="state"><option value="">All states</option>
+      {% for s, n in result.by_state() %}<option value="{{ s }}" {{ 'selected' if s == state }}>{{ s }} ({{ n }})</option>{% endfor %}
+    </select>
+    <button>Filter</button>
+  </form>
+  <p class="muted">{{ rows|length }} rows. Green: state resolved from document. Orange: filename state corrected. Blue: reviewer override. Yellow: flagged.</p>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Company</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Form</th><th>Source file</th><th>Flags</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="basis-{{ r.basis }} {{ 'flagged' if r.flags }}">
+        <td>{{ r.company }}</td><td>{{ r.certificate_type }}</td><td>{{ r.state }}</td>
+        <td class="mono">{{ r.registration or "" }}</td><td>{{ r.form or "" }}</td>
+        <td><a href="/e/{{ e.id }}/c/{{ r.certificate_id }}">{{ r.source_file }}</a></td>
+        <td class="small">{{ r.flags|unique|join(", ")|replace("_", " ") }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">No rows yet. Upload certificates to begin.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+
+{% elif tab == "followup" %}
+  <p class="muted">Client follow-ups need something from the client. Reviewer checks are judgment calls to confirm.</p>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Severity</th><th>Issue</th><th>Certificate</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for c, f in follow %}
+      <tr><td><span class="pill sev-{{ f.severity }}">{{ f.severity|replace("_", " ") }}</span></td>
+        <td>{{ f.code|replace("_", " ") }}</td>
+        <td><a href="/e/{{ e.id }}/c/{{ c.cert.id }}">{{ c.cert.filename }}</a></td>
+        <td>{{ f.message }}</td></tr>
+    {% else %}<tr><td colspan="4" class="muted">Nothing flagged.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+
+{% elif tab == "certificates" %}
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>File</th><th>Batch</th><th>Status</th><th class="num">Rows</th><th>States</th><th>Review</th></tr></thead>
+    <tbody>
+    {% for c in result.certificates|sort(attribute="cert.filename") %}
+      <tr><td><a href="/e/{{ e.id }}/c/{{ c.cert.id }}">{{ c.cert.filename }}</a></td>
+        <td>{{ c.cert.batch_label }}</td>
+        <td><span class="pill st-{{ c.cert.status }}">{{ c.cert.status }}</span></td>
+        <td class="num">{{ c.rows|length }}</td>
+        <td class="small">{{ c.rows|map(attribute="state")|unique|join(", ") }}</td>
+        <td>{{ c.cert.review_status|replace("_", " ") }}</td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No certificates yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+
+{% elif tab == "excluded" %}
+  <p class="muted">Lines that have something written on them but did not make the schedule under the current review policy.</p>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Company</th><th>State</th><th>Text on line</th><th>Why excluded</th><th>Source file</th></tr></thead>
+    <tbody>
+    {% for x in result.excluded %}
+      <tr><td>{{ x.company }}</td><td>{{ x.state }}</td><td class="mono">{{ x.raw_text }}</td><td>{{ x.reason }}</td>
+        <td><a href="/e/{{ e.id }}/c/{{ x.certificate_id }}">{{ x.source_file }}</a></td></tr>
+    {% else %}<tr><td colspan="5" class="muted">None.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+
+{% elif tab == "ask" %}
+  <div class="chat">
+    {% for item in qa %}
+      <div class="q">{{ item.question }}</div>
+      <div class="a">{{ item.answer }}</div>
+    {% else %}
+      <p class="muted">Ask anything about this client's certificates, for example: "Which customers have no
+        qualifying registration?", "List every certificate that expires before year end", or
+        "Why was Alfresco Heating only scheduled for California?"</p>
+    {% endfor %}
+  </div>
+  <form method="post" action="/e/{{ e.id }}/ask" class="ask">
+    <textarea name="question" rows="3" required placeholder="Ask a question about this engagement"></textarea>
+    <button>Ask</button>
+  </form>
+
+{% elif tab == "policy" %}
+  <p class="muted">These are the judgment calls made on every engagement. Change one and the whole
+    schedule re-scores instantly; nothing is re-read. Lines left blank or dashed out are never scheduled.</p>
+  <form method="post" action="/e/{{ e.id }}/policy" class="policy">
+    {% for key, label in labels.items() %}
+      <label class="check"><input type="checkbox" name="{{ key }}" {{ 'checked' if policy[key] }}> {{ label }}</label>
+    {% endfor %}
+    <label>Flag certificates expiring within <input type="number" name="expiring_soon_days" value="{{ policy.expiring_soon_days }}" min="0" class="short"> days</label>
+    <button>Save policy</button>
+  </form>
+
+{% elif tab == "batches" %}
+  <table class="grid">
+    <thead><tr><th>Batch</th><th>Uploaded</th><th class="num">Files received</th><th class="num">Added</th><th class="num">Already on file</th></tr></thead>
+    <tbody>
+    {% for b in batches %}
+      <tr><td>{{ b.label }}</td><td>{{ b.uploaded_at[:16]|replace("T", " ") }}</td><td class="num">{{ b.files_received }}</td>
+        <td class="num">{{ b.files_new }}</td><td class="num">{{ b.files_duplicate }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No uploads yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+</section>
+{% endblock %}

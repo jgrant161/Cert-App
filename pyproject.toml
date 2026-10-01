@@ -1,0 +1,28 @@
+[project]
+name = "certapp"
+version = "0.1.0"
+description = "AI-assisted exemption and resale certificate review and schedule builder"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=1.11",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6",
+    "openpyxl>=3.1",
+    "pypdf>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+include = ["certapp*"]
+
+[tool.setuptools.package-data]
+certapp = ["web/templates/*.html", "web/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
