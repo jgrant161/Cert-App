@@ -45,6 +45,7 @@ class DemoExtractor:
         else:
             obs.append("Multistate or undetermined file: needs an AI or manual read of the grid.")
         return Extraction(
+            form_number=None,
             form_name=None,
             form_family="other" if state else "mtc_uniform",
             issuing_state=state,

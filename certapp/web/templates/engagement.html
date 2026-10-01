@@ -55,17 +55,17 @@
   </form>
   <p class="muted">{{ rows|length }} rows. Green: state resolved from document. Orange: filename state corrected. Blue: reviewer override. Yellow: flagged.</p>
   <div class="scroll"><table class="grid">
-    <thead><tr><th>Company</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Form</th><th>Source file</th><th>Flags</th></tr></thead>
+    <thead><tr><th>Company</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Form No.</th><th>Form name</th><th>Source file</th><th>Flags</th></tr></thead>
     <tbody>
     {% for r in rows %}
       <tr class="basis-{{ r.basis }} {{ 'flagged' if r.flags }}">
         <td>{{ r.company }}</td><td>{{ r.certificate_type }}</td><td>{{ r.state }}</td>
-        <td class="mono">{{ r.registration or "" }}</td><td>{{ r.form or "" }}</td>
+        <td class="mono">{{ r.registration or "" }}</td><td class="mono nowrap">{{ r.form_number or "" }}</td><td>{{ r.form_name or "" }}</td>
         <td><a href="/e/{{ e.id }}/c/{{ r.certificate_id }}">{{ r.source_file }}</a></td>
         <td class="small">{{ r.flags|unique|join(", ")|replace("_", " ") }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="muted">No rows yet. Upload certificates to begin.</td></tr>
+      <tr><td colspan="8" class="muted">No rows yet. Upload certificates to begin.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
@@ -86,16 +86,18 @@
 
 {% elif tab == "certificates" %}
   <div class="scroll"><table class="grid">
-    <thead><tr><th>File</th><th>Batch</th><th>Status</th><th class="num">Rows</th><th>States</th><th>Review</th></tr></thead>
+    <thead><tr><th>File</th><th>Batch</th><th>Form No.</th><th>Form name</th><th>Status</th><th class="num">Rows</th><th>States</th><th>Review</th></tr></thead>
     <tbody>
     {% for c in result.certificates|sort(attribute="cert.filename") %}
       <tr><td><a href="/e/{{ e.id }}/c/{{ c.cert.id }}">{{ c.cert.filename }}</a></td>
         <td>{{ c.cert.batch_label }}</td>
+        <td class="mono nowrap">{{ c.extraction.form_number or "" if c.extraction }}</td>
+        <td>{{ c.extraction.form_name or "" if c.extraction }}</td>
         <td><span class="pill st-{{ c.cert.status }}">{{ c.cert.status }}</span></td>
         <td class="num">{{ c.rows|length }}</td>
         <td class="small">{{ c.rows|map(attribute="state")|unique|join(", ") }}</td>
         <td>{{ c.cert.review_status|replace("_", " ") }}</td></tr>
-    {% else %}<tr><td colspan="6" class="muted">No certificates yet.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="8" class="muted">No certificates yet.</td></tr>{% endfor %}
     </tbody>
   </table></div>
 

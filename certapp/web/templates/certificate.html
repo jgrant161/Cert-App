@@ -38,7 +38,8 @@
     {% if c.extraction %}{% set x = c.extraction %}
     <h2>Document says</h2>
     <dl class="kv">
-      <dt>Form</dt><dd>{{ x.form_name or "—" }} ({{ x.form_family|replace("_", " ") }})</dd>
+      <dt>Form number</dt><dd>{{ x.form_number or "—" }}</dd>
+      <dt>Form name</dt><dd>{{ x.form_name or "—" }} ({{ x.form_family|replace("_", " ") }})</dd>
       <dt>Purchaser</dt><dd>{{ x.purchaser.name or "—" }}{% if x.purchaser.address %}<br><span class="small">{{ x.purchaser.address }}</span>{% endif %}</dd>
       <dt>Seller</dt><dd>{{ x.seller.name or "—" }}</dd>
       <dt>Type</dt><dd>{{ x.certificate_type|replace("_", " ") }}{% if x.exemption_reason %} — {{ x.exemption_reason }}{% endif %}</dd>

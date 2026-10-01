@@ -61,7 +61,14 @@ class Party(BaseModel):
 
 
 class Extraction(BaseModel):
-    form_name: str | None = Field(description="Form title / number, e.g. 'CDTFA-230', 'MTC Uniform'")
+    form_number: str | None = Field(
+        default=None,  # absent on readings saved before this field existed
+        description="The form's number or identifier exactly as printed, e.g. 'CDTFA-230', 'ST-5', "
+                    "'E-595E', '01-339', 'ST-120'. Null when the form carries no number")
+    form_name: str | None = Field(
+        description="The form's printed title, e.g. 'California Resale Certificate', "
+                    "'Uniform Sales & Use Tax Exemption/Resale Certificate - Multijurisdiction', "
+                    "'Streamlined Sales Tax Certificate of Exemption'")
     form_family: FormFamily
     issuing_state: str | None = Field(description="State whose form this is, null for multistate forms")
     purchaser: Party

@@ -40,10 +40,15 @@ def L(state, raw="", cls="registration_number", issuing=None, disclaims=False, i
                             id_issuing_state=issuing, disclaims_registration=disclaims, note=None)
 
 
-def X(lines, buyer, *, multi=False, form="CDTFA-230", family=None, ctype="resale", expires=None,
-      reason=None, obs=(), conf="high", signed=True):
+MTC = (None, "Uniform Sales & Use Tax Exemption/Resale Certificate - Multijurisdiction")
+SST = ("SST", "Streamlined Sales Tax Certificate of Exemption")
+
+
+def X(lines, buyer, *, multi=False, form=("CDTFA-230", "California Resale Certificate"), family=None,
+      ctype="resale", expires=None, reason=None, obs=(), conf="high", signed=True):
     return Extraction(
-        form_name="MTC Uniform Sales & Use Tax Certificate" if multi and not form else form,
+        form_number=form[0],
+        form_name=form[1],
         form_family=family or ("mtc_uniform" if multi else "state_resale"),
         issuing_state=None if multi else lines[0].state,
         purchaser=Party(name=buyer, address=None, state=None),
@@ -59,47 +64,47 @@ NEXUS = [L(s, "SR-FHA-100-555 & Exempt Per Nexus Rules", "home_state_number", "C
 DEMO = {
     "Acme Supply - Resale Certificate (CA).pdf": X([L("CA", "SR-EA-102-334455")], "Acme Supply Inc."),
     "Alfresco Heating - Exemption Certificate (Multijurisdiction).pdf": X(
-        [L("CA", "SR-FHA-100-555")] + NEXUS, "Alfresco Heating", multi=True, form="MTC Uniform"),
+        [L("CA", "SR-FHA-100-555")] + NEXUS, "Alfresco Heating", multi=True, form=MTC),
     "Brandster - Resale Certificate (Multijurisdiction).pdf": X(
         [L("FL", "78-8012345678-9"), L("AL", "78-8012345678-9", "home_state_number", "FL"),
          L("CT", "78-8012345678-9", "home_state_number", "FL"), L("TX", "32012345678"),
-         L("GA", "", "blank"), L("NV", "N/A", "na")], "Brandster LLC", multi=True, form="MTC Uniform"),
+         L("GA", "", "blank"), L("NV", "N/A", "na")], "Brandster LLC", multi=True, form=MTC),
     "Modern Living Spaces - Resale Certificate (Multijurisdiction).pdf": X(
         [L("CO", "34567890-0001")] + [L(s, "Wayfair Ruling", "non_numeric_text")
                                        for s in ("AZ", "GA", "IL", "TX")],
-        "Modern Living Spaces", multi=True, form="MTC Uniform"),
+        "Modern Living Spaces", multi=True, form=MTC),
     "Patio Comforts - Resale Certificate (Multijurisdiction).pdf": X(
         [L(s, "", "blank") for s in ("AR", "GA", "IN", "KS")], "Patio Comforts", multi=True,
-        form="Streamlined Sales Tax Certificate of Exemption", family="sst_streamlined",
+        form=SST, family="sst_streamlined",
         reason="Do not meet nexus threshold"),
     "BE Aerospace (Collins Aerospace) - Resale Certificate (FL).pdf": X(
-        [L("NC", "600123456")], "BE Aerospace Inc.", form="NCDOR E-595E",
+        [L("NC", "600123456")], "BE Aerospace Inc.", form=("E-595E", "Streamlined Sales and Use Tax Certificate of Exemption (North Carolina)"),
         obs=["Filename says FL but this is North Carolina Form E-595E (purchaser in Winston-Salem, NC)."]),
     "Field Aerospace - Resale Certificate (TBD).pdf": X([L("OK", "2001234-56")], "Field Aerospace",
-                                                       form="Oklahoma Sales Tax Permit"),
+                                                       form=(None, "Oklahoma Sales Tax Permit")),
     "Woods Hole Oceanographic - Exemption Certificate (MA).pdf": X(
-        [L("MA", "E-042103580")], "Woods Hole Oceanographic Institution", form="MA ST-5",
+        [L("MA", "E-042103580")], "Woods Hole Oceanographic Institution", form=("ST-5", "Sales Tax Exempt Purchaser Certificate (Massachusetts)"),
         ctype="nonprofit", reason="501(c)(3) exempt purchaser", expires="2021-12-31"),
     "Navy Golf Course - Exemption Certificate (CA).pdf": X(
-        [L("CA", "", "blank")], "Navy Golf Course", form="Federal instrumentality exemption",
+        [L("CA", "", "blank")], "Navy Golf Course", form=(None, "Federal Instrumentality Exemption Letter"),
         family="entity_exemption", ctype="government",
         reason="Federal instrumentality, Cal. Code Regs. tit. 18 §1614"),
     "Renovation Brands - Resale Certificate (Multiple).pdf": X(
-        [L("MA", "ST4-0099887")], "Renovation Brands", form="MA ST-4", multi=False,
+        [L("MA", "ST4-0099887")], "Renovation Brands", form=("ST-4", "Sales Tax Resale Certificate (Massachusetts)"), multi=False,
         obs=["Page 1 is a Massachusetts ST-4; pages 2-8 bundle further state certificates that need a page-by-page read."],
         conf="medium"),
     "Yaskawa America - Resale Certificate (Multijurisdiction).pdf": X(
         [L("IL", "1234-5678"), L("OH", "98765432"), L("WI", "456-1234567890-03"), L("AL", "N/A", "na"),
-         L("AR", "N/A", "na")], "Yaskawa America Inc.", multi=True, form="MTC Uniform"),
+         L("AR", "N/A", "na")], "Yaskawa America Inc.", multi=True, form=MTC),
 }
 DUPLICATE = ("Yaskawa America - Resale Certificate (Multijurisdiction).pdf",
              "Yaskawa America Inc - Resale Certificate (Multijurisdiction).pdf")
 LATER = {
     "Delta Tools - Resale Certificate (TX).pdf": X([L("TX", "32098765432")], "Delta Tools Co.",
-                                                   form="Texas 01-339", expires="2026-12-01"),
+                                                   form=("01-339", "Texas Sales and Use Tax Resale Certificate"), expires="2026-12-01"),
     "Sun World - Resale Certificate (Multijurisdiction).pdf": X(
         [L(s, "95-1234567", "fein") for s in ("CA", "GA", "IN", "KY", "MI", "NC")], "Sun World",
-        multi=True, form="Streamlined Sales Tax Certificate of Exemption", family="sst_streamlined",
+        multi=True, form=SST, family="sst_streamlined",
         reason="Do not meet nexus threshold"),
 }
 

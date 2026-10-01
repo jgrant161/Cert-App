@@ -87,3 +87,4 @@ form.inline { margin: 0; }
   .split { grid-template-columns: 1fr; }
   .filter input { min-width: 0; width: 100%; }
 }
+.nowrap { white-space: nowrap; }

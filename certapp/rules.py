@@ -65,7 +65,8 @@ class ScheduleRow:
     certificate_type: str
     state: str
     registration: str | None
-    form: str | None
+    form_number: str | None
+    form_name: str | None
     source_file: str
     batch: str
     basis: str      # single_state | exploded | tbd_resolved | corrected | override
@@ -297,7 +298,7 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
             rows.append(ScheduleRow(
                 certificate_id=cert["id"], company=company, certificate_type=cert_type,
                 state=line.state, registration=line.id_value or line.raw_text or None,
-                form=ex.form_name, source_file=cert["filename"], batch=batch,
+                form_number=ex.form_number, form_name=ex.form_name, source_file=cert["filename"], batch=batch,
                 basis="override" if ov else basis,
                 flags=line_flags + [f.code for f in flags
                                     if f.severity != "info" and f.code not in _LINE_LEVEL],

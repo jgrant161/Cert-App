@@ -39,6 +39,9 @@ or bundles additional certificates on later pages, say so in observations.
 - Entity-based exemptions (federal, state, or local government; federal \
 instrumentality; nonprofit; school) carry no resale registration; set \
 certificate_type accordingly and record the basis cited.
+- Record the form number (e.g. CDTFA-230, ST-5, E-595E, 01-339) and the form's \
+printed title separately. Many state forms print the number in a corner or footer; \
+multistate forms such as the MTC Uniform certificate often have no number.
 - Read every page. Use null for anything not on the document. Dates as YYYY-MM-DD.
 """
 

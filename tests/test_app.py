@@ -12,7 +12,8 @@ from certapp.web.app import create_app
 from conftest import FakeExtractor, extraction, line, make_pdf
 
 FILES = {
-    "Acme Supply - Resale Certificate (CA).pdf": extraction([line("CA", "SR-111")], purchaser="Acme"),
+    "Acme Supply - Resale Certificate (CA).pdf": extraction(
+        [line("CA", "SR-111")], purchaser="Acme", form_number="CDTFA-230", form="California Resale Certificate"),
     "Brandster - Resale Certificate (Multijurisdiction).pdf": extraction(
         [line("FL", "FL-7"), line("AL", "FL-7", "home_state_number", issuing="FL"),
          line("GA", "", "blank")], multistate=True, purchaser="Brandster"),
@@ -44,7 +45,8 @@ def test_full_engagement_flow():
     assert sorted(fake.calls) == sorted(FILES)
 
     page = client.get(f"/e/{eid}").text
-    assert "SR-111" in page and "AL" in page
+    assert "SR-111" in page and "AL" in page and "CDTFA-230" in page
+    assert "California Resale Certificate" in client.get(f"/e/{eid}?tab=certificates").text
 
     # Second batch: one new file, one re-sent file (skipped, not re-read).
     resend = zip_of(["Acme Supply - Resale Certificate (CA).pdf", *LATER])
@@ -73,10 +75,14 @@ def test_full_engagement_flow():
     wb = load_workbook(io.BytesIO(r.content))
     assert wb.sheetnames[0] == "Overview"
     sched = [row for row in wb["Schedule"].iter_rows(min_row=2, values_only=True)]
+    header = [c.value for c in wb["Schedule"][1]]
+    acme = dict(zip(header, next(row for row in sched if row[0] == "Acme Supply")))
+    assert (acme["Form Number"], acme["Form Name"]) == ("CDTFA-230", "California Resale Certificate")
     assert sorted((row[0], row[2]) for row in sched) == [
         ("Acme Supply", "CA"), ("Brandster", "FL"), ("Collins", "NC"), ("Delta Tools", "TX")]
     recon = list(wb["Reconciliation"].iter_rows(min_row=2, values_only=True))
-    assert recon[-1][0] == "TOTAL (4 files)" and recon[-1][3] == 4
+    assert recon[-1][0] == "TOTAL (4 files)" and recon[-1][5] == 4
+    assert next(r for r in recon if r[0].startswith("Acme"))[3:5] == ("CDTFA-230", "California Resale Certificate")
     assert any(row[0] == "Brandster" and row[1] == "AL" for row in
                wb["Excluded Lines"].iter_rows(min_row=2, values_only=True))
 
@@ -94,6 +100,13 @@ def test_extraction_errors_are_isolated_and_retryable():
     fake.by_filename["Bad - Resale Certificate (CA).pdf"] = extraction([line("CA", "SR-1")])
     client.post("/e/1/c/1/retry")
     assert "SR-1" in client.get("/e/1").text
+
+
+def test_readings_saved_before_form_number_still_load():
+    from certapp.extraction.schema import Extraction
+    old = extraction([line("CA", "SR-1")]).model_dump()
+    del old["form_number"]
+    assert Extraction.model_validate(old).form_number is None
 
 
 def test_json_schema_is_strict():

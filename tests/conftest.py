@@ -32,10 +32,10 @@ def line(state, raw="", cls="registration_number", id_value=None, issuing=None, 
                             id_issuing_state=issuing, disclaims_registration=disclaims, note=None)
 
 
-def extraction(lines, *, multistate=False, purchaser="Buyer", form="Form", family=None,
+def extraction(lines, *, multistate=False, purchaser="Buyer", form="Form", form_number=None, family=None,
                cert_type="resale", expires=None, signed=True, observations=(), confidence="high"):
     return Extraction(
-        form_name=form, form_family=family or ("mtc_uniform" if multistate else "state_resale"),
+        form_number=form_number, form_name=form, form_family=family or ("mtc_uniform" if multistate else "state_resale"),
         issuing_state=None if multistate else lines[0].state if lines else None,
         purchaser=Party(name=purchaser, address=None, state=None),
         seller=Party(name="Seller", address=None, state=None),
