@@ -123,3 +123,46 @@ def test_json_schema_is_strict():
             for v in node:
                 walk(v)
     walk(schema)
+
+
+def test_upload_summary_and_delete_engagement(data_dir):
+    fake = FakeExtractor(FILES)
+    client = TestClient(create_app(extractor=fake))
+    client.post("/engagements", data={"client_name": "Acme Client"})
+    names = list(FILES)
+    zip_bytes = zip_of(names)
+    r = client.post("/e/1/upload", data={"label": "First"},
+                    files=[("files", ("c.zip", zip_bytes, "application/zip")),
+                           ("files", ("notes.txt", b"hello", "text/plain"))])
+    assert 'Batch "First" uploaded.' in r.text and "3 new certificates added" in r.text
+    assert "1 non-PDF file ignored" in r.text
+    r = client.post("/e/1/upload", data={"label": "Again"},
+                    files=[("files", ("c.zip", zip_bytes, "application/zip"))])
+    assert "0 new certificates added" in r.text and "3 already on file (skipped)" in r.text
+
+    # Wrong name: nothing deleted.
+    r = client.post("/e/1/delete", data={"confirm_name": "Acme"})
+    assert "did not match" in r.text
+    assert client.get("/e/1").status_code == 200
+
+    files_dir = data_dir / "data" / "files" / "1"
+    assert any(files_dir.iterdir())
+    r = client.post("/e/1/delete", data={"confirm_name": " acme client "})
+    assert 'Deleted "Acme Client"' in r.text
+    assert client.get("/e/1").status_code == 404
+    assert not files_dir.exists()
+
+
+def test_interrupted_reads_resume():
+    from certapp import db
+    eid = db.create_engagement("X")
+    name = "Acme Supply - Resale Certificate (CA).pdf"
+    from certapp.ingest import ingest
+    ingest(eid, [(name, make_pdf("x"))], "b")
+    db.claim_pending(eid)                       # app "closed" mid-read
+    fake = FakeExtractor(FILES)
+    client = TestClient(create_app(extractor=fake))   # restart resets it
+    page = client.get(f"/e/{eid}").text
+    assert "1 certificate waiting to be read" in page and "Resume reading" in page
+    client.post(f"/e/{eid}/process")
+    assert "SR-111" in client.get(f"/e/{eid}").text

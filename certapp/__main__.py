@@ -1,6 +1,6 @@
 """Command line: run the web app, or process a folder straight to Excel.
 
-    python -m certapp serve [--port 8000]
+    python -m certapp serve [--port 8000] [--share]
     python -m certapp run "Certificates.zip" --client "Additive Manufacturing, LLC" -o schedule.xlsx
 """
 
@@ -18,6 +18,8 @@ def main(argv: list[str] | None = None) -> int:
     serve = sub.add_parser("serve", help="run the web app")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--share", action="store_true",
+                       help="let other computers on the same office network open the app")
 
     run = sub.add_parser("run", help="read certificates and write the Excel schedule")
     run.add_argument("inputs", nargs="+", help="PDF files, .zip archives, or folders")
@@ -30,7 +32,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "serve":
         import uvicorn
         from .web.app import create_app
-        uvicorn.run(create_app(), host=args.host, port=args.port)
+        host = "0.0.0.0" if args.share else args.host
+        print(f"\nOn this computer, open:  http://127.0.0.1:{args.port}")
+        if args.share:
+            print(f"Teammates on the same network open:  http://{_lan_address()}:{args.port}")
+            print("Anyone on this network can open it while this window is running. There is no login yet,")
+            print("so share client data this way only on a trusted office network.")
+        print("Keep this window open while you use the app. Close it to stop.\n")
+        uvicorn.run(create_app(), host=host, port=args.port, log_level="warning")
         return 0
 
     from . import db
@@ -68,6 +77,19 @@ def main(argv: list[str] | None = None) -> int:
           f"{counts.get('follow_up', 0)} client follow-ups, {counts.get('review', 0)} reviewer checks.")
     print(f"Wrote {out}")
     return 0
+
+
+def _lan_address() -> str:
+    """This computer's address on the local network (no traffic is sent)."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return socket.gethostbyname(socket.gethostname())
+    finally:
+        s.close()
 
 
 if __name__ == "__main__":

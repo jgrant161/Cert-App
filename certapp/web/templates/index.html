@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
+{% if deleted %}<div class="notice ok">Deleted "{{ deleted }}" and all of its certificates.</div>{% endif %}
 <section class="card">
   <h1>Client engagements</h1>
   <p class="muted">One engagement per client. Upload the certificate folder the client sends, the

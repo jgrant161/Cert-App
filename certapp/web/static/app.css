@@ -88,3 +88,15 @@ form.inline { margin: 0; }
   .filter input { min-width: 0; width: 100%; }
 }
 .nowrap { white-space: nowrap; }
+.notice { border-radius: 8px; padding: 10px 12px; margin: 12px 0; border: 1px solid var(--border); }
+.notice.ok { background: var(--green); }
+.progress { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 12px 0; background: var(--yellow);
+  display: flex; flex-direction: column; gap: 8px; }
+.progress-label { display: flex; flex-direction: column; gap: 2px; }
+.bar { height: 10px; border-radius: 999px; background: var(--surface); overflow: hidden; border: 1px solid var(--border); }
+.bar span { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.progress form { margin: 0; }
+button:disabled { opacity: .6; cursor: wait; }
+details.danger summary { cursor: pointer; color: var(--red-text); font-weight: 600; }
+details.danger p { margin: 10px 0; }
+.danger-btn { background: #b42318; }

@@ -31,6 +31,16 @@ export ANTHROPIC_API_KEY=sk-ant-...       # without a key the app runs in demo m
 python -m certapp serve                   # http://127.0.0.1:8000
 ```
 
+**Sharing with your team on the office network:** run `python -m certapp serve --share`.
+The window prints an address such as `http://192.168.1.25:8000` that teammates on the same
+network (or VPN) can open while the app is running on your computer. Windows may ask
+whether to allow Python through the firewall: choose **Private networks**. There are no
+logins yet, so anyone on that network can see the data while it is running.
+
+**Deleting a client:** open the client, scroll to the bottom, open **Delete this client**,
+type the client name to confirm, and click **Delete client permanently**. This removes the
+certificates, schedule, notes and questions for that client and cannot be undone.
+
 Batch mode, straight to Excel with no browser:
 
 ```bash

@@ -117,6 +117,17 @@ def get_engagement(eid: int) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM engagement WHERE id = ?", (eid,)).fetchone()
 
 
+def delete_engagement(eid: int) -> None:
+    """Remove an engagement and everything under it (files are removed by the caller)."""
+    with connect() as conn:
+        conn.execute("""DELETE FROM line_override WHERE certificate_id IN
+                        (SELECT id FROM certificate WHERE engagement_id = ?)""", (eid,))
+        conn.execute("UPDATE certificate SET duplicate_of = NULL WHERE engagement_id = ?", (eid,))
+        for table in ("qa", "certificate", "batch"):
+            conn.execute(f"DELETE FROM {table} WHERE engagement_id = ?", (eid,))
+        conn.execute("DELETE FROM engagement WHERE id = ?", (eid,))
+
+
 def save_policy(eid: int, policy: dict) -> None:
     with connect() as conn:
         conn.execute("UPDATE engagement SET policy_json = ? WHERE id = ?", (json.dumps(policy), eid))
@@ -145,6 +156,11 @@ def list_batches(eid: int) -> list[sqlite3.Row]:
         return conn.execute(
             "SELECT * FROM batch WHERE engagement_id = ? ORDER BY id", (eid,)
         ).fetchall()
+
+
+def list_batches_by_id(ids: list[int]) -> list[sqlite3.Row]:
+    with connect() as conn:
+        return conn.execute(f"SELECT * FROM batch WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
 
 
 def find_by_hash(eid: int, sha: str) -> list[sqlite3.Row]:
@@ -196,6 +212,12 @@ def claim_pending(eid: int) -> list[sqlite3.Row]:
         conn.executemany("UPDATE certificate SET status = 'processing' WHERE id = ?",
                          [(r["id"],) for r in rows])
         return rows
+
+
+def reset_interrupted() -> int:
+    """Certificates left 'processing' by a shutdown mid-read go back to pending."""
+    with connect() as conn:
+        return conn.execute("UPDATE certificate SET status = 'pending' WHERE status = 'processing'").rowcount
 
 
 def save_extraction(cid: int, extractor: str, extraction_json: str) -> None:

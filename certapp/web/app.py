@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -28,9 +30,25 @@ templates.env.globals["ai_available"] = ai_available
 
 def create_app(extractor=None, ask_fn=None) -> FastAPI:
     db.init()
+    db.reset_interrupted()
     app = FastAPI(title="Certificate Review")
     app.state.extractor = extractor or default_extractor()
     app.state.ask = ask_fn or assistant.ask
+    running: set[int] = set()          # engagements with a read in progress
+    running_lock = threading.Lock()
+
+    def read_pending(eid: int) -> None:
+        with running_lock:
+            if eid in running:
+                return
+            running.add(eid)
+        try:
+            # Loop so files uploaded while a read was under way are picked up too.
+            while process_engagement(eid, app.state.extractor):
+                pass
+        finally:
+            with running_lock:
+                running.discard(eid)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
     def engagement_or_404(eid: int) -> dict:
@@ -52,9 +70,9 @@ def create_app(extractor=None, ask_fn=None) -> FastAPI:
     # --- engagements -------------------------------------------------------
 
     @app.get("/")
-    def index(request: Request):
+    def index(request: Request, deleted: str = ""):
         return templates.TemplateResponse(request, "index.html", {
-            "engagements": db.list_engagements(), "ai": ai_available(),
+            "engagements": db.list_engagements(), "ai": ai_available(), "deleted": deleted,
             "extractor": app.state.extractor.name})
 
     @app.post("/engagements")
@@ -63,7 +81,8 @@ def create_app(extractor=None, ask_fn=None) -> FastAPI:
         return back(f"/e/{eid}")
 
     @app.get("/e/{eid}")
-    def engagement(request: Request, eid: int, tab: str = "schedule", q: str = "", state: str = ""):
+    def engagement(request: Request, eid: int, tab: str = "schedule", q: str = "", state: str = "",
+                   intake: str = "", delete_error: str = ""):
         e, policy, result = score(eid)
         rows = sorted(result.rows, key=lambda r: (r.company.lower(), r.state))
         if q:
@@ -82,7 +101,9 @@ def create_app(extractor=None, ask_fn=None) -> FastAPI:
             "statuses": statuses, "follow": follow, "tab": tab, "q": q, "state": state,
             "batches": db.list_batches(eid), "qa": db.list_qa(eid), "ai": ai_available(),
             "extractor": app.state.extractor.name,
-            "busy": statuses["pending"] + statuses["processing"] > 0,
+            "busy": eid in running,
+            "done": statuses["extracted"] + statuses["error"],
+            "intake": _parse_intake(intake), "delete_error": delete_error,
         })
 
     @app.post("/e/{eid}/upload")
@@ -91,15 +112,28 @@ def create_app(extractor=None, ask_fn=None) -> FastAPI:
         engagement_or_404(eid)
         uploads = [(f.filename or "upload.pdf", await f.read()) for f in files]
         label = label.strip() or (Path(uploads[0][0]).stem if len(uploads) == 1 else f"Upload {date.today()}")
-        ingest(eid, uploads, label)
-        background.add_task(process_engagement, eid, app.state.extractor)
-        return back(f"/e/{eid}?tab=certificates")
+        report = ingest(eid, uploads, label)
+        background.add_task(read_pending, eid)
+        counts = [len(report.added), len(report.duplicates_linked), len(report.already_on_file),
+                  len(report.skipped)]
+        return back(f"/e/{eid}?tab=certificates&intake={report.batch_id}-" + "-".join(map(str, counts)))
 
     @app.post("/e/{eid}/process")
     def process(eid: int, background: BackgroundTasks):
         engagement_or_404(eid)
-        background.add_task(process_engagement, eid, app.state.extractor)
+        background.add_task(read_pending, eid)
         return back(f"/e/{eid}?tab=certificates")
+
+    @app.post("/e/{eid}/delete")
+    def delete(eid: int, confirm_name: str = Form("")):
+        e = engagement_or_404(eid)
+        if eid in running:
+            return back(f"/e/{eid}?delete_error=busy")
+        if confirm_name.strip().casefold() != e["client_name"].strip().casefold():
+            return back(f"/e/{eid}?delete_error=name")
+        db.delete_engagement(eid)
+        shutil.rmtree(db.data_dir() / "files" / str(eid), ignore_errors=True)
+        return RedirectResponse(f"/?deleted={e['client_name']}", status_code=303)
 
     @app.post("/e/{eid}/policy")
     async def policy(request: Request, eid: int):
@@ -183,7 +217,18 @@ def create_app(extractor=None, ask_fn=None) -> FastAPI:
         if not c or c["engagement_id"] != eid:
             raise HTTPException(404)
         db.requeue(cid)
-        background.add_task(process_engagement, eid, app.state.extractor)
+        background.add_task(read_pending, eid)
         return back(f"/e/{eid}/c/{cid}")
 
     return app
+
+
+def _parse_intake(text: str) -> dict | None:
+    """Decode the upload summary passed back to the page after an upload."""
+    try:
+        bid, added, linked, existing, skipped = (int(x) for x in text.split("-"))
+    except ValueError:
+        return None
+    batch = next((b for b in db.list_batches_by_id([bid])), None)
+    return {"label": batch["label"] if batch else "", "added": added, "linked": linked,
+            "existing": existing, "skipped": skipped}

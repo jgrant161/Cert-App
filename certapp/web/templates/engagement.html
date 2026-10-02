@@ -20,19 +20,51 @@
     <div><b>{{ result.by_state()|length }}</b><span>states</span></div>
     <div><b>{{ result.flag_counts()["follow_up"] or 0 }}</b><span>client follow-ups</span></div>
     <div><b>{{ result.flag_counts()["review"] or 0 }}</b><span>reviewer checks</span></div>
-    <div class="{{ 'warn' if busy else '' }}"><b>{{ statuses.pending + statuses.processing }}</b><span>being read</span></div>
     {% if statuses.error %}<div class="bad"><b>{{ statuses.error }}</b><span>errors</span></div>{% endif %}
   </div>
 
-  <form class="upload" method="post" action="/e/{{ e.id }}/upload" enctype="multipart/form-data">
+  {% if intake %}
+  <div class="notice ok">
+    <b>Batch "{{ intake.label }}" uploaded.</b>
+    {{ intake.added }} new certificate{{ "s" if intake.added != 1 }} added{% if intake.linked %},
+    {{ intake.linked }} identical cop{{ "ies" if intake.linked != 1 else "y" }} under a new name (linked, not re-read){% endif %}{% if intake.existing %},
+    {{ intake.existing }} already on file (skipped){% endif %}{% if intake.skipped %},
+    {{ intake.skipped }} non-PDF file{{ "s" if intake.skipped != 1 }} ignored{% endif %}.
+    {% if not ai_available() %}<br><span class="small">Demo mode: certificates are filed from their filenames only, so this finishes almost instantly.</span>{% endif %}
+  </div>
+  {% endif %}
+
+  {% set total = result.certificates|length %}
+  {% if busy or statuses.pending %}
+  <div class="progress">
+    <div class="progress-label">
+      {% if busy %}<b>Reading certificates: {{ done }} of {{ total }} done</b>
+        <span class="muted small">This page updates by itself every few seconds. You can leave and come back.</span>
+      {% else %}<b>{{ statuses.pending }} certificate{{ "s" if statuses.pending != 1 }} waiting to be read</b>
+        <span class="muted small">Reading stopped before finishing (for example, the app was closed).</span>
+      {% endif %}
+    </div>
+    <div class="bar"><span style="width: {{ (100 * done / total) | round | int if total else 0 }}%"></span></div>
+    {% if not busy %}
+    <form method="post" action="/e/{{ e.id }}/process"><button>Resume reading</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form class="upload" method="post" action="/e/{{ e.id }}/upload" enctype="multipart/form-data" id="upload-form">
     <label>Add certificates (PDFs or a .zip)
       <input type="file" name="files" multiple accept=".pdf,.zip" required></label>
     <label>Batch label <input name="label" placeholder="e.g. 9.30.26 Certs"></label>
     <button type="submit">Upload and read</button>
+    <span class="uploading muted" hidden>Uploading... large zip files can take a minute. Keep this page open.</span>
   </form>
-  {% if statuses.pending and not busy %}
-  <form method="post" action="/e/{{ e.id }}/process"><button>Read pending certificates</button></form>
-  {% endif %}
+  <script>
+    document.getElementById("upload-form").addEventListener("submit", function (ev) {
+      var btn = ev.target.querySelector("button");
+      btn.disabled = true; btn.textContent = "Uploading...";
+      ev.target.querySelector(".uploading").hidden = false;
+    });
+  </script>
 </section>
 
 <nav class="tabs">
@@ -152,4 +184,16 @@
   </table>
 {% endif %}
 </section>
+<details class="danger card" {{ 'open' if delete_error }}>
+  <summary>Delete this client</summary>
+  <p>Permanently deletes <b>{{ e.client_name }}</b>: every uploaded certificate, the schedule,
+    reviewer notes, overrides and questions. This cannot be undone. Download the Excel schedule first
+    if you need a record.</p>
+  {% if delete_error == "name" %}<p class="bad">The name you typed did not match. Nothing was deleted.</p>{% endif %}
+  {% if delete_error == "busy" %}<p class="bad">Certificates are still being read. Wait for reading to finish, then delete.</p>{% endif %}
+  <form method="post" action="/e/{{ e.id }}/delete" class="row">
+    <label>Type the client name to confirm <input name="confirm_name" autocomplete="off" placeholder="{{ e.client_name }}"></label>
+    <button class="danger-btn">Delete client permanently</button>
+  </form>
+</details>
 {% endblock %}
