@@ -6,6 +6,9 @@ wrong-state filenames, TBD files, duplicates, expired certificates), so the
 app can be shown without client data or an API key.
 
     python scripts/seed_demo.py && python -m certapp serve
+
+Add --demo-users to also create one sign-in per role (password: demo-password-1),
+for showing prospects what a client sees next to what the firm sees. Demo machines only.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pypdf import PdfWriter  # noqa: E402
 
-from certapp import db  # noqa: E402
+from certapp import auth, db  # noqa: E402
 from certapp.extraction.schema import Extraction, JurisdictionLine, Party  # noqa: E402
 from certapp.ingest import ingest  # noqa: E402
 from certapp.pipeline import process_engagement  # noqa: E402
@@ -116,6 +119,26 @@ class Canned:
         return {**DEMO, **LATER}[filename]
 
 
+DEMO_PASSWORD = "demo-password-1"
+
+
+def demo_users(eid: int) -> None:
+    accounts = [("admin@demo.test", "Demo Administrator", "firm_admin", None),
+                ("staff@demo.test", "Demo Staff", "firm_staff", None),
+                ("client.admin@demo.test", "Demo Client Admin", "client_admin", eid),
+                ("client@demo.test", "Demo Client User", "client_user", eid)]
+    for email, name, role, client in accounts:
+        if db.get_user_by_email(email):
+            continue
+        uid = db.create_user(email, name, role, "password", engagement_id=client,
+                             password_hash=auth.hash_password(DEMO_PASSWORD))
+        if role == "firm_staff":
+            db.assign_staff(eid, uid)
+    print("Demo sign-ins (password for all: %s):" % DEMO_PASSWORD)
+    for email, _, role, _ in accounts:
+        print(f"  {auth.ROLES[role]:<22} {email}")
+
+
 def main() -> None:
     db.init()
     eid = db.create_engagement("Sample Client (demo data)", "Demo Seller, LLC")
@@ -125,7 +148,10 @@ def main() -> None:
     ingest(eid, [(n, pdf(n)) for n in LATER], "9.30.26 Certs")
     process_engagement(eid, Canned())
     print(f"Created engagement {eid}. Run: python -m certapp serve  then open http://127.0.0.1:8000/e/{eid}")
-
+    if "--demo-users" in sys.argv:
+        demo_users(eid)
+    elif db.count_users() == 0:
+        print("On first launch the app asks you to create the first administrator.")
 
 if __name__ == "__main__":
     main()

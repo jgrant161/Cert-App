@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Activity · Certificate Review{% endblock %}
+{% block body %}
+<section class="card">
+  <h1>Activity</h1>
+  <p class="muted">Sign-ins, uploads, exports, documents opened, overrides and changes to users, newest first.
+    {% if user.role == "firm_staff" %}Showing activity on your assigned clients.{% endif %}</p>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>When (UTC)</th><th>Who</th><th>What</th><th>Client</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for a in entries %}
+      <tr>
+        <td class="nowrap">{{ a.at[:19]|replace("T", " ") }}</td>
+        <td>{{ a.user_email or "—" }}</td>
+        <td>{{ a.action|replace("_", " ") }}</td>
+        <td>{{ a.client_name or ("(deleted)" if a.engagement_id else "") }}</td>
+        <td class="small">{{ a.detail or "" }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

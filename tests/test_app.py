@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 from certapp.extraction.schema import json_schema
 from certapp.web.app import create_app
 
-from conftest import FakeExtractor, extraction, line, make_pdf
+from conftest import FakeExtractor, admin_client, extraction, line, make_pdf
 
 FILES = {
     "Acme Supply - Resale Certificate (CA).pdf": extraction(
@@ -34,7 +34,7 @@ def zip_of(names):
 def test_full_engagement_flow():
     fake = FakeExtractor({**FILES, **LATER})
     answers = []
-    client = TestClient(create_app(extractor=fake, ask_fn=lambda q, ctx, h: answers.append(ctx) or "answer"))
+    client = admin_client(TestClient(create_app(extractor=fake, ask_fn=lambda q, ctx, h: answers.append(ctx) or "answer")))
 
     r = client.post("/engagements", data={"client_name": "Additive Manufacturing, LLC"}, follow_redirects=False)
     eid = int(r.headers["location"].rsplit("/", 1)[1])
@@ -93,7 +93,7 @@ def test_full_engagement_flow():
 
 def test_extraction_errors_are_isolated_and_retryable():
     fake = FakeExtractor({})
-    client = TestClient(create_app(extractor=fake))
+    client = admin_client(TestClient(create_app(extractor=fake)))
     client.post("/engagements", data={"client_name": "X"})
     client.post("/e/1/upload", files=[("files", ("Bad - Resale Certificate (CA).pdf", make_pdf("bad"), "application/pdf"))])
     assert "unreadable" in client.get("/e/1/c/1").text
@@ -127,7 +127,7 @@ def test_json_schema_is_strict():
 
 def test_upload_summary_and_delete_engagement(data_dir):
     fake = FakeExtractor(FILES)
-    client = TestClient(create_app(extractor=fake))
+    client = admin_client(TestClient(create_app(extractor=fake)))
     client.post("/engagements", data={"client_name": "Acme Client"})
     names = list(FILES)
     zip_bytes = zip_of(names)
@@ -161,7 +161,7 @@ def test_interrupted_reads_resume():
     ingest(eid, [(name, make_pdf("x"))], "b")
     db.claim_pending(eid)                       # app "closed" mid-read
     fake = FakeExtractor(FILES)
-    client = TestClient(create_app(extractor=fake))   # restart resets it
+    client = admin_client(TestClient(create_app(extractor=fake)))   # restart resets it
     page = client.get(f"/e/{eid}").text
     assert "1 certificate waiting to be read" in page and "Resume reading" in page
     client.post(f"/e/{eid}/process")

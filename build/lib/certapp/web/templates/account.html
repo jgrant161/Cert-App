@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Your account · Certificate Review{% endblock %}
+{% block body %}
+<section class="card narrow">
+  <h1>Your account</h1>
+  <dl class="kv">
+    <dt>Name</dt><dd>{{ user.name }}</dd>
+    <dt>Email</dt><dd>{{ user.email }}</dd>
+    <dt>Role</dt><dd>{{ ROLES[user.role] }}</dd>
+    <dt>Sign-in</dt><dd>{{ "Microsoft 365" if user.auth_method == "microsoft" else "Password" }}</dd>
+  </dl>
+</section>
+
+{% if user.auth_method == "password" %}
+<section class="card narrow">
+  <h2>Change password</h2>
+  {% if saved %}<p class="notice ok">Password changed. Other devices have been signed out.</p>{% endif %}
+  {% if error %}<p class="notice bad-notice" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/account/password" class="stack">
+    <label for="current">Current password <input id="current" name="current" type="password" autocomplete="current-password" required></label>
+    <label for="password">New password (at least 12 characters)
+      <input id="password" name="password" type="password" autocomplete="new-password" required></label>
+    <label for="confirm">Repeat new password <input id="confirm" name="confirm" type="password" autocomplete="new-password" required></label>
+    <button type="submit">Change password</button>
+  </form>
+</section>
+{% else %}
+<section class="card narrow">
+  <p class="muted">Your password and two-step sign-in are managed by your organization's Microsoft 365.</p>
+</section>
+{% endif %}
+{% endblock %}

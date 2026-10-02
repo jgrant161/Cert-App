@@ -23,7 +23,7 @@
     <div><b>{{ result.rows|length }}</b><span>schedule rows</span></div>
     <div><b>{{ result.by_state()|length }}</b><span>states</span></div>
     <div><b>{{ result.flag_counts()["follow_up"] or 0 }}</b><span>client follow-ups</span></div>
-    {% if user.role in ("firm_admin", "firm_staff") %}<div><b>{{ result.flag_counts()["review"] or 0 }}</b><span>reviewer checks</span></div>{% endif %}
+    <div><b>{{ result.flag_counts()["review"] or 0 }}</b><span>reviewer checks</span></div>
     {% if statuses.error %}<div class="bad"><b>{{ statuses.error }}</b><span>errors</span></div>{% endif %}
   </div>
 
@@ -109,11 +109,7 @@
   </table></div>
 
 {% elif tab == "followup" %}
-  {% if user.role in ("firm_admin", "firm_staff") %}
   <p class="muted">Client follow-ups need something from the client. Reviewer checks are judgment calls to confirm.</p>
-  {% else %}
-  <p class="muted">Items that need something from your company, such as an updated or signed certificate from a customer.</p>
-  {% endif %}
   <div class="scroll"><table class="grid">
     <thead><tr><th>Severity</th><th>Issue</th><th>Certificate</th><th>Detail</th></tr></thead>
     <tbody>

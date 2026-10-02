@@ -172,8 +172,7 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         return RedirectResponse(url, status_code=303)
 
     def safe_next(target: str | None) -> str:
-        ok = target and target.startswith("/") and not target.startswith(("//", "/\\")) and "\\" not in target
-        return target if ok else "/"
+        return target if target and target.startswith("/") and not target.startswith("//") else "/"
 
     # --- health ------------------------------------------------------------
 
@@ -481,9 +480,7 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         statuses = {s: 0 for s in ("pending", "processing", "extracted", "error")}
         for c in result.certificates:
             statuses[c.cert["status"]] = statuses.get(c.cert["status"], 0) + 1
-        # Clients see what needs action from them; reviewer judgment calls stay internal.
-        shown = {"follow_up"} if user["role"] in auth.CLIENT_ROLES else {"follow_up", "review"}
-        follow = [(c, f) for c in result.certificates for f in c.flags if f.severity in shown]
+        follow = [(c, f) for c in result.certificates for f in c.flags if f.severity != "info"]
         follow.sort(key=lambda cf: (cf[1].severity != "follow_up", cf[0].cert["filename"].lower()))
         return render(request, "engagement.html", {
             "e": e, "policy": policy, "labels": POLICY_LABELS, "result": result, "rows": rows,

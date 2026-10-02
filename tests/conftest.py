@@ -1,18 +1,52 @@
 import io
+import os
 
 import pytest
 from pypdf import PdfWriter
 
-from certapp import db
+from certapp import auth, db
 from certapp.extraction.schema import Extraction, JurisdictionLine, Party
+
+# Set CERTAPP_TEST_DATABASE_URL=postgresql://... to run the whole suite against PostgreSQL.
+TEST_PG = os.environ.get("CERTAPP_TEST_DATABASE_URL")
+TEST_PASSWORD = "correct horse battery"
 
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("CERTAPP_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("CERTAPP_EXTRACTOR", "demo")
+    for var in ("CERTAPP_ENV", "CERTAPP_SECRET_KEY", "CERTAPP_MS_TENANT_ID", "CERTAPP_MS_CLIENT_ID",
+                "CERTAPP_MS_CLIENT_SECRET", "CERTAPP_BASE_URL", "CERTAPP_FILES_DIR", "DATABASE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setitem(auth._SCRYPT, "n", 2 ** 10)      # fast hashing in tests only
+    if TEST_PG:
+        monkeypatch.setenv("DATABASE_URL", TEST_PG)
+        import psycopg
+        with psycopg.connect(TEST_PG, autocommit=True) as conn:
+            conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
     db.init()
     return tmp_path
+
+
+def make_user(role: str, engagement_id: int | None = None, email: str | None = None,
+              method: str = "password") -> dict:
+    email = email or f"{role}{engagement_id or ''}@example.com"
+    uid = db.create_user(email, role.replace("_", " ").title(), role, method,
+                         engagement_id=engagement_id,
+                         password_hash=auth.hash_password(TEST_PASSWORD) if method == "password" else None)
+    return db.get_user(uid)
+
+
+def sign_in(client, user: dict):
+    r = client.post("/login", data={"email": user["email"], "password": TEST_PASSWORD})
+    assert r.status_code == 200 and "Sign in" not in r.text.split("<main>")[1][:200], r.text[:500]
+    return client
+
+
+def admin_client(client):
+    """Sign the test client in as a firm administrator."""
+    return sign_in(client, make_user("firm_admin", email="admin@example.com"))
 
 
 def make_pdf(tag: str) -> bytes:

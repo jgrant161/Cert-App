@@ -119,5 +119,3 @@ fieldset.choice legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
 .copy-row input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .ghost-btn { background: transparent; color: var(--link); border: 1px solid var(--border); }
 tr.inactive td { color: var(--muted); text-decoration: line-through; }
-[hidden] { display: none !important; }
-.stack input[type="checkbox"], .stack input[type="radio"] { width: auto; }

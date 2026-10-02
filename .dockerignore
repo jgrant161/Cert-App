@@ -1,0 +1,9 @@
+.git
+data
+tests
+scripts
+**/__pycache__
+*.egg-info
+.pytest_cache
+*.xlsx
+.env
