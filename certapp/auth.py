@@ -44,6 +44,26 @@ PERMISSIONS = {
 
 MIN_PASSWORD_LENGTH = 12
 INVITE_DAYS = 7
+DEFAULT_FIRM_DOMAINS = "insighttaxadvisors.com"
+
+
+def firm_domains() -> list[str]:
+    """Email domains allowed for firm accounts (CERTAPP_FIRM_DOMAINS, comma-separated)."""
+    raw = os.environ.get("CERTAPP_FIRM_DOMAINS", DEFAULT_FIRM_DOMAINS)
+    return [d.strip().lower().lstrip("@") for d in raw.split(",") if d.strip()]
+
+
+def firm_email_ok(email: str) -> bool:
+    domain = email.strip().lower().rsplit("@", 1)[-1]
+    return domain in firm_domains()
+
+
+def role_email_problem(role: str, email: str) -> str | None:
+    """Firm roles need a firm email address; client roles may use any domain."""
+    if role in FIRM_ROLES and not firm_email_ok(email):
+        allowed = " or ".join("@" + d for d in firm_domains())
+        return f"Firm accounts must use an {allowed} email address."
+    return None
 
 
 def can(user: dict | None, action: str) -> bool:
@@ -153,6 +173,9 @@ def authenticate(email: str, password: str, throttle: LoginThrottle) -> tuple[di
         throttle.failed(email)
         return None, generic
     throttle.succeeded(email)
+    problem = role_email_problem(user["role"], user["email"])
+    if problem:
+        return None, problem
     return user, None
 
 
@@ -173,7 +196,8 @@ def current_user(session: dict) -> dict | None:
     if not uid:
         return None
     user = db.get_user(uid)
-    if not user or not user["active"] or user["session_version"] != session.get("sv"):
+    if (not user or not user["active"] or user["session_version"] != session.get("sv")
+            or role_email_problem(user["role"], user["email"])):
         session.clear()
         return None
     return user

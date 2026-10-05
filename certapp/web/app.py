@@ -39,6 +39,7 @@ templates.env.globals["STATES"] = STATES
 templates.env.globals["ai_available"] = ai_available
 templates.env.globals["ROLES"] = auth.ROLES
 templates.env.globals["can"] = auth.can
+templates.env.globals["firm_domains"] = auth.firm_domains
 
 
 def production() -> bool:
@@ -205,6 +206,9 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
 
         if production() and not secrets.compare_digest(setup_token, os.environ.get("CERTAPP_SETUP_TOKEN", "") or secrets.token_hex()):
             return again("The setup code is not correct.")
+        problem = auth.role_email_problem("firm_admin", email)
+        if problem:
+            return again(problem)
         if method == "microsoft":
             if app.state.microsoft is None:
                 return again("Microsoft sign-in is not configured on this server yet.")
@@ -268,7 +272,8 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         if error:
             return back("/login?error=" + quote(error))
         user = db.get_user_by_email(email)
-        if not user or not user["active"] or user["auth_method"] != "microsoft":
+        if (not user or not user["active"] or user["auth_method"] != "microsoft"
+                or auth.role_email_problem(user["role"], email)):
             db.audit(None, "sign_in_failed", detail=f"microsoft: {email}")
             return back("/login?error=" + quote(
                 f"{email} is not set up for this app. Ask a firm administrator to add you."))
@@ -370,6 +375,8 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
             error = "Enter a name and a valid email address."
         elif db.get_user_by_email(email):
             error = "A user with that email already exists."
+        elif auth.role_email_problem(role, email):
+            error = auth.role_email_problem(role, email)
         elif role in auth.CLIENT_ROLES:
             if not auth.can(user, "manage_users"):
                 engagement_id = user["engagement_id"]          # client admins add to their own company
@@ -400,6 +407,9 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         role = form.get("role", target["role"])
         if role not in auth.assignable_roles(user):
             raise Forbidden()
+        problem = auth.role_email_problem(role, target["email"])
+        if problem:
+            return render(request, "user_form.html", user_form_ctx(user, target, problem), 400)
         active = 1 if form.get("active") == "on" else 0
         if target["id"] == user["id"] and (not active or role != user["role"]):
             return render(request, "user_form.html",

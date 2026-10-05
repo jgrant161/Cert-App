@@ -76,6 +76,7 @@ and a second batch.
 | `CERTAPP_ENV` | — | `production` turns on HTTPS-only cookies and the setup code |
 | `CERTAPP_SECRET_KEY` | generated locally | Signs sign-in cookies; required in production |
 | `CERTAPP_BASE_URL` | — | Public address, for Microsoft sign-in and invitation links |
+| `CERTAPP_FIRM_DOMAINS` | `insighttaxadvisors.com` | Email domains allowed for firm accounts |
 | `CERTAPP_MS_TENANT_ID` / `_CLIENT_ID` / `_CLIENT_SECRET` | — | Turn on Microsoft 365 sign-in |
 | `CERTAPP_WORKERS` | `4` | Certificates read in parallel |
 
@@ -90,6 +91,10 @@ Tests: `pytest`
 | **Client administrator** | Only their own company | View the schedule and follow-ups, download Excel, add and remove their company's users |
 | **Client user** | Only their own company | View the schedule and follow-ups, download Excel |
 
+- **Firm accounts must use an @insighttaxadvisors.com address.** Firm administrator and firm
+  staff accounts with any other domain cannot be created, cannot be promoted to, and cannot sign
+  in (this also blocks Microsoft 365 guest accounts from other companies). Client accounts can use
+  any address. Change or extend the list with `CERTAPP_FIRM_DOMAINS` (comma-separated).
 - **Client separation** is enforced on every page and download. A client that a user may not
   see answers "Page not found", so the app does not even reveal which clients exist.
   `tests/test_auth.py` walks every client route as every role to prove it.

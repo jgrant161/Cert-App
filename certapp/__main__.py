@@ -50,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
             if db.get_user_by_email(args.email):
                 print(f"A user with {args.email} already exists.")
                 return 1
+            problem = auth.role_email_problem("firm_admin", args.email)
+            if problem:
+                print(problem)
+                return 1
             uid = db.create_user(args.email, args.name, "firm_admin",
                                  "microsoft" if args.microsoft else "password")
             db.audit(None, "user_created", detail=f"{args.email} as firm administrator (command line)")

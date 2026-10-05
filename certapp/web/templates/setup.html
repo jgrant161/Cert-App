@@ -12,7 +12,8 @@
       <span class="small muted">The CERTAPP_SETUP_TOKEN value from the server's settings.</span></label>
     {% endif %}
     <label for="name">Your name <input id="name" name="name" required></label>
-    <label for="email">Work email <input id="email" name="email" type="email" required></label>
+    <label for="email">Work email <input id="email" name="email" type="email" required>
+      <span class="small muted">Must end in {{ firm_domains()|map("string")|map("replace", "", "@", 1)|join(" or ") }}</span></label>
     {% if ms_enabled %}
     <fieldset class="choice">
       <legend>How will you sign in?</legend>

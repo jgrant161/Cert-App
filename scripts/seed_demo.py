@@ -14,6 +14,7 @@ for showing prospects what a client sees next to what the firm sees. Demo machin
 from __future__ import annotations
 
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -123,8 +124,9 @@ DEMO_PASSWORD = "demo-password-1"
 
 
 def demo_users(eid: int) -> None:
-    accounts = [("admin@demo.test", "Demo Administrator", "firm_admin", None),
-                ("staff@demo.test", "Demo Staff", "firm_staff", None),
+    firm = auth.firm_domains()[0]
+    accounts = [(f"demo.admin@{firm}", "Demo Administrator", "firm_admin", None),
+                (f"demo.staff@{firm}", "Demo Staff", "firm_staff", None),
                 ("client.admin@demo.test", "Demo Client Admin", "client_admin", eid),
                 ("client@demo.test", "Demo Client User", "client_user", eid)]
     for email, name, role, client in accounts:
@@ -140,6 +142,8 @@ def demo_users(eid: int) -> None:
 
 
 def main() -> None:
+    if "--demo-users" in sys.argv and os.environ.get("CERTAPP_ENV", "").lower() == "production":
+        sys.exit("Refusing to create demo accounts with a shared password on a production server.")
     db.init()
     eid = db.create_engagement("Sample Client (demo data)", "Demo Seller, LLC")
     first = [(n, pdf(n)) for n in DEMO] + [(DUPLICATE[1], pdf(DUPLICATE[0]))]

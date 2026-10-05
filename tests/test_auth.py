@@ -308,6 +308,71 @@ def test_deleting_a_client_removes_its_users(world):
     assert db.get_user_by_email("clerk@a.com") is not None
 
 
+# --- firm email domain -----------------------------------------------------
+
+def test_firm_domain_defaults_to_insight(monkeypatch):
+    monkeypatch.delenv("CERTAPP_FIRM_DOMAINS")
+    assert auth.firm_domains() == ["insighttaxadvisors.com"]
+    assert auth.firm_email_ok("Jordan@InsightTaxAdvisors.com")
+    assert not auth.firm_email_ok("jordan@insighttaxadvisors.com.evil.net")
+    assert not auth.firm_email_ok("someone@gmail.com")
+    assert auth.role_email_problem("client_user", "buyer@anycompany.com") is None
+
+
+def test_setup_refuses_outside_email():
+    client = new_client()
+    r = client.post("/setup", data={"name": "Pat", "email": "pat@gmail.com", "method": "password",
+                                    "password": TEST_PASSWORD, "confirm": TEST_PASSWORD})
+    assert r.status_code == 400 and "Firm accounts must use" in r.text and db.count_users() == 0
+
+
+def test_firm_roles_need_firm_email_but_clients_do_not(world):
+    client = as_user(world, "admin")
+    for role in ("firm_admin", "firm_staff"):
+        r = client.post("/users/new", data={"name": "Outsider", "email": f"{role}@gmail.com", "role": role,
+                                            "auth_method": "password"})
+        assert r.status_code == 400 and "Firm accounts must use" in r.text
+        assert not db.get_user_by_email(f"{role}@gmail.com")
+    r = client.post("/users/new", data={"name": "Buyer", "email": "buyer@anycompany.com", "role": "client_user",
+                                        "engagement_id": str(world["a"])})
+    assert "Send this sign-in link" in r.text
+
+
+def test_client_user_cannot_be_promoted_to_firm_role_with_outside_email(world):
+    client = as_user(world, "admin")
+    uid = world["users"]["client_user_a"]["id"]
+    r = client.post(f"/users/{uid}", data={"name": "Clerk", "role": "firm_staff", "active": "on"})
+    assert r.status_code == 400 and db.get_user(uid)["role"] == "client_user"
+
+
+def test_existing_firm_account_with_outside_email_is_shut_out(world):
+    rogue = make_user("firm_admin", email="old.admin@gmail.com")
+    r = new_client().post("/login", data={"email": rogue["email"], "password": TEST_PASSWORD})
+    assert "Firm accounts must use" in r.text
+    # A session started before the rule (or before a domain change) ends on the next page.
+    signed_in = as_user(world, "staff_a")
+    with db.connect() as conn:
+        conn.execute("UPDATE app_user SET email = 'staff.a@gmail.com' WHERE id = ?", (world["users"]["staff_a"]["id"],))
+    assert signed_in.get(f"/e/{world['a']}", follow_redirects=False).status_code == 303
+
+
+def test_microsoft_guest_from_another_domain_is_refused(world):
+    # A guest invited into the firm's Microsoft 365 keeps their own email address.
+    make_user("firm_staff", email="guest@partner.com", method="microsoft")
+    client = new_client(microsoft_login=FakeMicrosoft(email="guest@partner.com"))
+    client.get("/auth/microsoft", follow_redirects=False)
+    r = client.get("/auth/microsoft/callback?code=abc&state=s")
+    assert "not set up for this app" in r.text
+    assert client.get("/", follow_redirects=False).status_code == 303
+
+
+def test_command_line_admin_needs_firm_email(capsys):
+    from certapp.__main__ import main
+    assert main(["create-admin", "--email", "me@gmail.com", "--name", "Me"]) == 1
+    assert "Firm accounts must use" in capsys.readouterr().out
+    assert main(["create-admin", "--email", "me@firm.com", "--name", "Me"]) == 0
+
+
 # --- Microsoft 365 ---------------------------------------------------------
 
 class FakeMicrosoft:

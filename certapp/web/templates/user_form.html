@@ -33,6 +33,8 @@
         · Signs in with {{ "Microsoft 365" if target.auth_method == "microsoft" else "a password" }}</p>
     {% else %}
       <label for="email">Email <input id="email" name="email" type="email" required></label>
+      {% if admin %}<p class="small muted" data-for="firm_admin firm_staff">Firm accounts must use an
+        {{ firm_domains()|map("replace", "", "@", 1)|join(" or ") }} address. Client accounts can use any address.</p>{% endif %}
     {% endif %}
 
     <label for="role">Role

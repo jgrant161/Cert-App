@@ -89,6 +89,7 @@ Use a new tag (`certapp:2`, `certapp:3`, …) for each release so you can roll b
    | `DATABASE_URL` | from step 2 |
    | `CERTAPP_FILES_DIR` | `/mnt/certfiles` |
    | `CERTAPP_SETUP_TOKEN` | a one-time code you choose (remove after setup) |
+   | `CERTAPP_FIRM_DOMAINS` | `insighttaxadvisors.com` (the default; list more, comma-separated, if the firm has several) |
    | `ANTHROPIC_API_KEY` | from console.anthropic.com |
    | `CERTAPP_MS_TENANT_ID`, `CERTAPP_MS_CLIENT_ID`, `CERTAPP_MS_CLIENT_SECRET` | from step 1 |
    | `WEBSITES_PORT` | `8000` |

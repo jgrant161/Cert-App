@@ -20,6 +20,7 @@ def data_dir(tmp_path, monkeypatch):
                 "CERTAPP_MS_CLIENT_SECRET", "CERTAPP_BASE_URL", "CERTAPP_FILES_DIR", "DATABASE_URL"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setitem(auth._SCRYPT, "n", 2 ** 10)      # fast hashing in tests only
+    monkeypatch.setenv("CERTAPP_FIRM_DOMAINS", "example.com,firm.com")   # firm addresses used in tests
     if TEST_PG:
         monkeypatch.setenv("DATABASE_URL", TEST_PG)
         import psycopg
