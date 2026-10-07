@@ -439,3 +439,26 @@ def test_session_cookie_is_http_only(world):
     r = client.post("/login", data={"email": "admin@firm.com", "password": TEST_PASSWORD}, follow_redirects=False)
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=lax" in cookie
+
+
+def test_local_only_invite_link_is_flagged(world, monkeypatch):
+    client = sign_in(TestClient(create_app(extractor=FakeExtractor({})), base_url="http://127.0.0.1:8000"),
+                     world["users"]["admin"])
+    uid = world["users"]["client_user_a"]["id"]
+    local = client.post(f"/users/{uid}/invite")
+    assert "only works on this computer" in local.text
+    monkeypatch.setenv("CERTAPP_BASE_URL", "http://192.168.1.25:8000")
+    shared = client.post(f"/users/{uid}/invite")
+    assert "http://192.168.1.25:8000/invite/" in shared.text and "only works on this computer" not in shared.text
+
+
+def test_share_mode_sets_link_address(monkeypatch):
+    import certapp.__main__ as cli
+    seen = {}
+    monkeypatch.delenv("CERTAPP_BASE_URL", raising=False)
+    monkeypatch.setattr(cli, "_lan_address", lambda: "192.168.1.25")
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: seen.update(k))
+    cli.main(["serve", "--share", "--port", "8000"])
+    import os
+    assert os.environ["CERTAPP_BASE_URL"] == "http://192.168.1.25:8000" and seen["host"] == "0.0.0.0"

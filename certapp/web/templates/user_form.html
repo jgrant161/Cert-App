@@ -15,6 +15,10 @@
       <button type="button" id="copy-link">Copy link</button>
     </div>
     <span class="small muted">The app does not send email yet. Paste the link into an email to them.</span>
+    {% if "127.0.0.1" in link or "localhost" in link %}
+    <p class="notice bad-notice small">This link only works on this computer. To create a link a teammate can open,
+      restart the app with <code>python -m certapp serve --share</code> and click <b>Create a new sign-in link</b>.</p>
+    {% endif %}
   </div>
   <script>
     document.getElementById("copy-link").addEventListener("click", function () {

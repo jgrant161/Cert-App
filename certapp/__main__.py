@@ -75,12 +75,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "serve":
         import uvicorn
         from .web.app import create_app
+        import os
         host = "0.0.0.0" if args.share else args.host
         print(f"\nOn this computer, open:  http://127.0.0.1:{args.port}")
         if args.share:
-            print(f"Teammates on the same network open:  http://{_lan_address()}:{args.port}")
-            print("Anyone on this network can open it while this window is running. There is no login yet,")
-            print("so share client data this way only on a trusted office network.")
+            shared = f"http://{_lan_address()}:{args.port}"
+            # Sign-in links created while sharing must use the address teammates can reach.
+            os.environ.setdefault("CERTAPP_BASE_URL", shared)
+            print(f"Teammates on the same network open:  {shared}")
+            print("They sign in with the account you created for them under Users.")
         print("Keep this window open while you use the app. Close it to stop.\n")
         uvicorn.run(create_app(), host=host, port=args.port, log_level="warning")
         return 0
