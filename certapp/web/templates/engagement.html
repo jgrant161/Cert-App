@@ -14,6 +14,7 @@
       {% endif %}
     </div>
     <div class="actions">
+      {% if can(user, "portal_manage") %}<a class="button ghost" href="/e/{{ e.id }}/portal">Vendor portal</a>{% endif %}
       {% if can(user, "export") %}<a class="button" href="/e/{{ e.id }}/export.xlsx">Download Excel schedule</a>{% endif %}
     </div>
   </div>

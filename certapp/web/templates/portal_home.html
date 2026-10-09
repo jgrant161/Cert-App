@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Certificate requests · {{ e.client_name }}{% endblock %}
+{% block body %}
+{% if preview %}
+<div class="notice">Preview: this is what vendors of <b>{{ e.client_name }}</b> see.
+  <a href="/e/{{ e.id }}/portal">Back to portal setup</a></div>
+{% endif %}
+<section class="card">
+  <p class="crumb">{{ e.client_name }}</p>
+  <h1>Request a sales tax exemption certificate</h1>
+  <p class="muted">Choose the project you are selling to and list what you are selling. You will get the
+    exemption certificate that applies, or a contact to discuss the sale.</p>
+  {% if error %}<p class="notice bad-notice" role="alert">{{ error }}</p>{% endif %}
+
+  {% if not projects %}
+    <p class="muted">No projects are set up yet. Please contact {{ contact.name or "your contact" }}{% if contact.email %} at {{ contact.email }}{% endif %}.</p>
+  {% else %}
+  <form method="post" action="/portal/check" class="stack" id="request-form">
+    {% if preview %}<input type="hidden" name="eid" value="{{ e.id }}">{% endif %}
+    <div class="row">
+      <label for="project_id" class="grow">Project you are selling to
+        <select id="project_id" name="project_id" required>
+          <option value="">Choose a project</option>
+          {% for group in projects|groupby("entity_name") %}
+          <optgroup label="{{ group.grouper }}">
+            {% for p in group.list %}
+            <option value="{{ p.id }}">{{ p.name }}{% if p.number %} (#{{ p.number }}){% endif %} · {{ p.state }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </label>
+      <label for="reference">Your quote or PO number (optional) <input id="reference" name="reference" maxlength="100"></label>
+    </div>
+
+    <fieldset class="items">
+      <legend>Items you are selling</legend>
+      <div class="item-head small muted"><span>Description</span><span>Category</span></div>
+      <div id="item-rows">
+        {% for i in range(3) %}
+        <div class="item-row">
+          <input name="description" aria-label="Item description" placeholder="{{ ['e.g. CNC milling machine, model VF-4', 'e.g. 2 in. galvanized conduit', 'e.g. Replacement spindle bearings'][i] }}">
+          <select name="category_id" aria-label="Item category">
+            <option value="">Choose</option>
+            {% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" class="ghost-btn" id="add-item">Add another item</button>
+    </fieldset>
+
+    <details class="small">
+      <summary>Not sure which category fits?</summary>
+      <dl class="kv">
+        {% for c in categories %}<dt>{{ c.name }}</dt><dd>{{ c.examples or "" }}</dd>{% endfor %}
+      </dl>
+    </details>
+
+    <button type="submit">Check items</button>
+  </form>
+  <script>
+    document.getElementById("add-item").addEventListener("click", function () {
+      var rows = document.getElementById("item-rows");
+      var copy = rows.firstElementChild.cloneNode(true);
+      copy.querySelectorAll("input").forEach(function (el) { el.value = ""; el.placeholder = ""; });
+      copy.querySelectorAll("select").forEach(function (el) { el.selectedIndex = 0; });
+      rows.appendChild(copy);
+      copy.querySelector("input").focus();
+    });
+  </script>
+  {% endif %}
+</section>
+
+{% if contact.name or contact.email %}
+<section class="card">
+  <h2>Questions about a sale?</h2>
+  <p>{{ contact.name }}{% if contact.email %} · <a href="mailto:{{ contact.email }}">{{ contact.email }}</a>{% endif %}{% if contact.phone %} · {{ contact.phone }}{% endif %}</p>
+</section>
+{% endif %}
+
+{% if history %}
+<section class="card">
+  <h2>Your recent requests</h2>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Request</th><th>Date</th><th>Project</th><th>Your reference</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for r in history %}
+      <tr><td><a href="/portal/r/{{ r.id }}">#{{ r.id }}</a></td><td class="nowrap">{{ r.created_at[:10] }}</td>
+        <td>{{ r.project_name or "" }}</td><td>{{ r.reference or "" }}</td>
+        <td><span class="pill out-{{ r.result.status }}">{{ {"exempt": "Certificate provided", "taxable": "Taxable", "review": "Contact needed", "mixed": "Partly exempt"}[r.result.status] }}</span></td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

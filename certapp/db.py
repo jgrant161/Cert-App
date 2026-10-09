@@ -100,6 +100,64 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail TEXT
 );
 CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log (at);
+CREATE TABLE IF NOT EXISTS portal_entity (
+    id {pk},
+    engagement_id INTEGER NOT NULL REFERENCES engagement(id),
+    name TEXT NOT NULL,
+    home_state TEXT,
+    notes TEXT
+);
+CREATE TABLE IF NOT EXISTS portal_project (
+    id {pk},
+    engagement_id INTEGER NOT NULL REFERENCES engagement(id),
+    entity_id INTEGER NOT NULL REFERENCES portal_entity(id),
+    name TEXT NOT NULL,
+    number TEXT,
+    state TEXT NOT NULL,
+    project_type TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS portal_category (
+    id {pk},
+    engagement_id INTEGER NOT NULL REFERENCES engagement(id),
+    name TEXT NOT NULL,
+    examples TEXT
+);
+CREATE TABLE IF NOT EXISTS portal_certificate (
+    id {pk},
+    engagement_id INTEGER NOT NULL REFERENCES engagement(id),
+    entity_id INTEGER NOT NULL REFERENCES portal_entity(id),
+    state TEXT NOT NULL,                         -- two-letter code, or * for a multistate form
+    cert_type TEXT NOT NULL,
+    label TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    expires TEXT
+);
+CREATE TABLE IF NOT EXISTS portal_rule (
+    id {pk},
+    engagement_id INTEGER NOT NULL REFERENCES engagement(id),
+    category_id INTEGER NOT NULL REFERENCES portal_category(id),
+    state TEXT NOT NULL,                         -- two-letter code, or * for any state
+    project_type TEXT NOT NULL,                  -- a project type, or * for any
+    outcome TEXT NOT NULL,                       -- exempt | taxable | review
+    cert_type TEXT,
+    note TEXT
+);
+CREATE TABLE IF NOT EXISTS portal_contact (
+    engagement_id INTEGER PRIMARY KEY REFERENCES engagement(id),
+    name TEXT, email TEXT, phone TEXT, message TEXT
+);
+CREATE TABLE IF NOT EXISTS portal_request (
+    id {pk},
+    engagement_id INTEGER NOT NULL REFERENCES engagement(id),
+    user_id INTEGER,
+    user_email TEXT,
+    project_id INTEGER,
+    reference TEXT,
+    items_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -233,6 +291,9 @@ def delete_engagement(eid: int) -> None:
         conn.execute("""DELETE FROM line_override WHERE certificate_id IN
                         (SELECT id FROM certificate WHERE engagement_id = ?)""", (eid,))
         conn.execute("UPDATE certificate SET duplicate_of = NULL WHERE engagement_id = ?", (eid,))
+        for table in ("portal_request", "portal_rule", "portal_certificate", "portal_project",
+                      "portal_category", "portal_entity", "portal_contact"):
+            conn.execute(f"DELETE FROM {table} WHERE engagement_id = ?", (eid,))
         for table in ("qa", "certificate", "batch", "engagement_staff"):
             conn.execute(f"DELETE FROM {table} WHERE engagement_id = ?", (eid,))
         conn.execute("DELETE FROM invite WHERE user_id IN (SELECT id FROM app_user WHERE engagement_id = ?)", (eid,))

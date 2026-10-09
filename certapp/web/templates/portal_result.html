@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Request #{{ req.id }} · {{ e.client_name }}{% endblock %}
+{% block body %}
+{% set status = req.result.status %}
+<section class="card">
+  <p class="crumb"><a href="{{ '/e/%d/portal' % e.id if preview else '/portal' }}">{{ e.client_name }}</a></p>
+  <h1>Request #{{ req.id }}:
+    {{ {"exempt": "Exempt. Your certificate is ready.",
+        "taxable": "Taxable. Charge sales tax.",
+        "review": "Please contact us about this sale.",
+        "mixed": "Partly exempt."}[status] }}</h1>
+  <p class="muted">{{ project.name if project else req.project_name }}{% if project and project.number %} (#{{ project.number }}){% endif %}
+    · {{ req.project_state }}{% if req.reference %} · Your reference: {{ req.reference }}{% endif %}
+    · {{ req.created_at[:16]|replace("T", " ") }} UTC{% if preview %} · Requested by {{ req.user_email }}{% endif %}</p>
+
+  {% if req.result.certificates %}
+  <div class="notice ok">
+    <b>Certificate{{ "s" if req.result.certificates|length > 1 }} for the exempt items:</b>
+    <ul class="certs">
+      {% for c in req.result.certificates %}
+      <li><a class="button" href="/portal/r/{{ req.id }}/cert/{{ c.id }}">Download {{ c.label }}</a></li>
+      {% endfor %}
+    </ul>
+    <span class="small">Keep this certificate with your records for this sale.</span>
+  </div>
+  {% endif %}
+
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Item</th><th>Category</th><th>Result</th><th>Why</th></tr></thead>
+    <tbody>
+    {% for i in req.result["items"] %}
+      <tr><td>{{ i.description }}</td><td>{{ i.category }}</td>
+        <td><span class="pill out-{{ i.outcome }}">{{ outcomes[i.outcome] }}</span></td>
+        <td class="small">{{ i.reason }}{% if i.certificate_label %} Certificate: {{ i.certificate_label }}.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+{% if status in ("review", "mixed", "taxable") %}
+<section class="card">
+  <h2>{% if status == "review" or req.result["items"]|selectattr("outcome", "equalto", "review")|list %}Next step: contact us{% else %}Questions?{% endif %}</h2>
+  <p>{{ contact.message or "Please reach out before invoicing so we can confirm the right tax treatment." }}</p>
+  <p><b>{{ contact.name or "Tax department" }}</b>{% if contact.email %} · <a href="mailto:{{ contact.email }}?subject=Certificate request %23{{ req.id }}">{{ contact.email }}</a>{% endif %}{% if contact.phone %} · {{ contact.phone }}{% endif %}</p>
+  <p class="small muted">Mention request #{{ req.id }} so we can see exactly what you entered.</p>
+</section>
+{% endif %}
+
+<p><a class="button ghost" href="{{ '/e/%d/portal/try' % e.id if preview else '/portal' }}">Start another request</a></p>
+{% endblock %}

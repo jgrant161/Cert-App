@@ -32,6 +32,7 @@ from ..ingest import ingest
 from ..pipeline import process_engagement
 from ..rules import POLICY_LABELS, Policy, score_engagement
 from ..states import STATES
+from . import portal_routes
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -460,6 +461,8 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
 
     @app.get("/")
     def index(request: Request, deleted: str = "", user: dict = Depends(signed_in)):
+        if user["role"] == "vendor":
+            return back("/portal")
         engagements = db.list_engagements(auth.accessible_engagement_ids(user))
         if user["role"] in auth.CLIENT_ROLES and len(engagements) == 1:
             return back(f"/e/{engagements[0]['id']}")
@@ -627,6 +630,7 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         background.add_task(read_pending, eid)
         return back(f"/e/{eid}/c/{cid}")
 
+    portal_routes.register(app, render=render, signed_in=signed_in, need=need, back=back, forbidden=Forbidden)
     return app
 
 

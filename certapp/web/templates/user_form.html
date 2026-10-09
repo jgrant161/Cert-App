@@ -48,14 +48,14 @@
     </label>
 
     {% if admin %}
-    <div data-for="client_admin client_user">
+    <div data-for="client_admin client_user vendor">
       <label for="engagement_id">Client this user belongs to
         <select id="engagement_id" name="engagement_id">
           <option value="">Choose a client</option>
           {% for e in engagements %}<option value="{{ e.id }}" {{ 'selected' if target and target.engagement_id == e.id }}>{{ e.client_name }}</option>{% endfor %}
         </select>
       </label>
-      <p class="small muted">Client users can view their own company's schedule and follow-ups and download the Excel file. They cannot change anything.</p>
+      <p class="small muted">Client users can view their own company's schedule and follow-ups and download the Excel file. They cannot change anything. Vendors see only this client's certificate portal.</p>
     </div>
 
     <fieldset class="choice" data-for="firm_staff">

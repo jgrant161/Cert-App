@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Vendor portal · {{ e.client_name }}{% endblock %}
+{% block body %}
+<section class="card">
+  <div class="head">
+    <div>
+      <p class="crumb"><a href="/">Clients</a> / <a href="/e/{{ e.id }}">{{ e.client_name }}</a></p>
+      <h1>Vendor certificate portal</h1>
+      <p class="muted">Vendors choose a project, list their items, and get a certificate, a "charge tax" answer,
+        or this client's contact. The rules below make every decision; an item no rule covers goes to the contact.</p>
+    </div>
+    <div class="actions"><a class="button" href="/e/{{ e.id }}/portal/try">Try it as a vendor</a></div>
+  </div>
+  {% if error %}<p class="notice bad-notice" role="alert">{{ error }}</p>{% endif %}
+  <div class="stats">
+    <div><b>{{ entity|length }}</b><span>entities</span></div>
+    <div><b>{{ project|length }}</b><span>projects</span></div>
+    <div><b>{{ rule|length }}</b><span>rules</span></div>
+    <div><b>{{ certificate|length }}</b><span>certificates</span></div>
+    <div><b>{{ vendors|length }}</b><span>vendors</span></div>
+    <div><b>{{ requests|length }}</b><span>recent requests</span></div>
+  </div>
+</section>
+
+<section class="card" id="requests">
+  <h2>Recent vendor requests</h2>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Request</th><th>Date</th><th>Vendor</th><th>Project</th><th>Reference</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for r in requests %}
+      <tr><td><a href="/portal/r/{{ r.id }}">#{{ r.id }}</a></td><td class="nowrap">{{ r.created_at[:16]|replace("T", " ") }}</td>
+        <td>{{ r.user_email }}</td><td>{{ r.project_name or "" }}</td><td>{{ r.reference or "" }}</td>
+        <td><span class="pill out-{{ r.result.status }}">{{ {"exempt": "Certificate provided", "taxable": "Taxable", "review": "Contact needed", "mixed": "Partly exempt"}[r.result.status] }}</span></td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No requests yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card" id="rule">
+  <h2>Rules</h2>
+  <p class="muted small">The most specific rule wins: a rule for the project's state beats one for any state, and a rule for the
+    project type beats one for any type. Exempt rules hand out the entity's certificate of the chosen type for that state.</p>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Category</th><th>State</th><th>Project type</th><th>Result</th><th>Certificate</th><th>Note shown to vendor</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rule %}
+      <tr><td>{{ names.category[r.category_id].name if r.category_id in names.category else "" }}</td>
+        <td>{{ "Any" if r.state == "*" else r.state }}</td>
+        <td>{{ "Any" if r.project_type == "*" else project_types[r.project_type] }}</td>
+        <td><span class="pill out-{{ r.outcome }}">{{ outcomes[r.outcome] }}</span></td>
+        <td>{{ cert_types[r.cert_type] if r.cert_type else "" }}</td><td class="small">{{ r.note or "" }}</td>
+        <td><form method="post" action="/e/{{ e.id }}/portal/delete/rule/{{ r.id }}" class="inline"><button class="link">Remove</button></form></td></tr>
+    {% else %}<tr><td colspan="7" class="muted">No rules yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <form method="post" action="/e/{{ e.id }}/portal/add/rule" class="row addform">
+    <label>Category <select name="category_id" required>{% for c in category %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></label>
+    <label>State <input name="state" placeholder="TX or Any" class="short"></label>
+    <label>Project type <select name="project_type"><option value="*">Any</option>{% for k, v in project_types.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label>Result <select name="outcome">{% for k, v in outcomes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label>Certificate (if exempt) <select name="cert_type"><option value="">—</option>{% for k, v in cert_types.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label class="grow">Note shown to vendor <input name="note"></label>
+    <button>Add rule</button>
+  </form>
+</section>
+
+<section class="card" id="certificate">
+  <h2>Certificate library</h2>
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Certificate</th><th>Entity</th><th>State</th><th>Type</th><th>Expires</th><th></th></tr></thead>
+    <tbody>
+    {% for c in certificate %}
+      <tr><td>{{ c.label }}</td><td>{{ names.entity[c.entity_id].name if c.entity_id in names.entity else "" }}</td>
+        <td>{{ "Multistate" if c.state == "*" else c.state }}</td><td>{{ cert_types[c.cert_type] }}</td><td>{{ c.expires or "" }}</td>
+        <td><form method="post" action="/e/{{ e.id }}/portal/delete/certificate/{{ c.id }}" class="inline"><button class="link">Remove</button></form></td></tr>
+    {% else %}<tr><td colspan="6" class="muted">No certificates yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <form method="post" action="/e/{{ e.id }}/portal/add/certificate" enctype="multipart/form-data" class="row addform">
+    <label>Signed certificate (PDF) <input type="file" name="file" accept=".pdf" required></label>
+    <label>Entity <select name="entity_id" required>{% for x in entity %}<option value="{{ x.id }}">{{ x.name }}</option>{% endfor %}</select></label>
+    <label>State <input name="state" placeholder="TX, or Any for multistate" class="short"></label>
+    <label>Type <select name="cert_type">{% for k, v in cert_types.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label>Label <input name="label" placeholder="Texas manufacturing exemption"></label>
+    <label>Expires <input type="date" name="expires"></label>
+    <button>Add certificate</button>
+  </form>
+</section>
+
+<div class="split">
+<section class="card" id="project">
+  <h2>Projects</h2>
+  <table class="grid">
+    <thead><tr><th>Project</th><th>Entity</th><th>State</th><th>Type</th><th></th></tr></thead>
+    <tbody>
+    {% for p in project %}
+      <tr><td>{{ p.name }}{% if p.number %} <span class="muted small">#{{ p.number }}</span>{% endif %}</td>
+        <td class="small">{{ names.entity[p.entity_id].name if p.entity_id in names.entity else "" }}</td><td>{{ p.state }}</td>
+        <td class="small">{{ project_types[p.project_type] }}</td>
+        <td><form method="post" action="/e/{{ e.id }}/portal/delete/project/{{ p.id }}" class="inline"><button class="link">Remove</button></form></td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No projects yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/e/{{ e.id }}/portal/add/project" class="stack addform">
+    <label>Project name <input name="name" required></label>
+    <div class="row">
+      <label>Number <input name="number" class="short"></label>
+      <label>State <input name="state" required class="short" placeholder="TX"></label>
+      <label>Entity <select name="entity_id" required>{% for x in entity %}<option value="{{ x.id }}">{{ x.name }}</option>{% endfor %}</select></label>
+    </div>
+    <label>Project type <select name="project_type">{% for k, v in project_types.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <button>Add project</button>
+  </form>
+</section>
+
+<section class="card" id="category">
+  <h2>Item categories</h2>
+  <table class="grid">
+    <thead><tr><th>Category</th><th>Examples shown to vendors</th><th></th></tr></thead>
+    <tbody>
+    {% for c in category %}
+      <tr><td>{{ c.name }}</td><td class="small">{{ c.examples or "" }}</td>
+        <td><form method="post" action="/e/{{ e.id }}/portal/delete/category/{{ c.id }}" class="inline"><button class="link">Remove</button></form></td></tr>
+    {% else %}<tr><td colspan="3" class="muted">No categories yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/e/{{ e.id }}/portal/add/category" class="stack addform">
+    <label>Category name <input name="name" required></label>
+    <label>Examples <input name="examples" placeholder="CNC machines, presses, conveyors"></label>
+    <button>Add category</button>
+  </form>
+</section>
+</div>
+
+<div class="split">
+<section class="card" id="entity">
+  <h2>Buying entities</h2>
+  <table class="grid">
+    <thead><tr><th>Entity</th><th>Home state</th><th>Notes</th><th></th></tr></thead>
+    <tbody>
+    {% for x in entity %}
+      <tr><td>{{ x.name }}</td><td>{{ x.home_state if x.home_state != "*" else "" }}</td><td class="small">{{ x.notes or "" }}</td>
+        <td><form method="post" action="/e/{{ e.id }}/portal/delete/entity/{{ x.id }}" class="inline"><button class="link">Remove</button></form></td></tr>
+    {% else %}<tr><td colspan="4" class="muted">No entities yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/e/{{ e.id }}/portal/add/entity" class="stack addform">
+    <label>Entity name <input name="name" required></label>
+    <div class="row"><label>Home state <input name="home_state" class="short"></label><label class="grow">Notes <input name="notes"></label></div>
+    <button>Add entity</button>
+  </form>
+</section>
+
+<section class="card" id="contact">
+  <h2>Contact for vendors</h2>
+  <p class="muted small">Shown whenever the portal can't hand out a certificate.</p>
+  <form method="post" action="/e/{{ e.id }}/portal/contact" class="stack">
+    <label>Name or team <input name="name" value="{{ contact.name or '' }}"></label>
+    <label>Email <input type="email" name="email" value="{{ contact.email or '' }}"></label>
+    <label>Phone <input name="phone" value="{{ contact.phone or '' }}"></label>
+    <label>Message to vendors <input name="message" value="{{ contact.message or '' }}"></label>
+    <button>Save contact</button>
+  </form>
+  <h2>Vendors</h2>
+  <p class="small">{% for v in vendors %}{{ v.name }} ({{ v.email }}){% if not loop.last %}, {% endif %}{% else %}No vendors yet.{% endfor %}</p>
+  <p class="small"><a href="/users/new">Add a vendor</a> (choose the Vendor role and this client).</p>
+</section>
+</div>
+{% endblock %}

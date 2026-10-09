@@ -6,6 +6,7 @@ firm_admin    Everything: all clients, users, staff assignments, the activity lo
 firm_staff    Works the clients they are assigned to: upload, review, policy, export, questions.
 client_admin  Their own company only: read the schedule and follow-ups, export, manage their users.
 client_user   Their own company only: read the schedule and follow-ups, export.
+vendor        A client's supplier: uses that client's vendor certificate portal and nothing else.
 
 Client separation is enforced in one place: ``can_access_engagement``. Every
 route that touches client data calls ``require_engagement`` first.
@@ -29,17 +30,19 @@ ROLES = {
     "firm_staff": "Firm staff",
     "client_admin": "Client administrator",
     "client_user": "Client user",
+    "vendor": "Vendor",
 }
 FIRM_ROLES = {"firm_admin", "firm_staff"}
-CLIENT_ROLES = {"client_admin", "client_user"}
+CLIENT_ROLES = {"client_admin", "client_user", "vendor"}   # tied to one client (engagement)
 
 # Actions on a client's data, by role. Anything not listed is refused.
 PERMISSIONS = {
     "firm_admin": {"view", "export", "work", "ask", "policy", "delete", "create_engagement",
-                   "manage_users", "manage_client_users", "view_audit"},
-    "firm_staff": {"view", "export", "work", "ask", "policy", "view_audit"},
+                   "manage_users", "manage_client_users", "view_audit", "portal_manage"},
+    "firm_staff": {"view", "export", "work", "ask", "policy", "view_audit", "portal_manage"},
     "client_admin": {"view", "export", "manage_client_users"},
     "client_user": {"view", "export"},
+    "vendor": {"vendor_portal"},
 }
 
 MIN_PASSWORD_LENGTH = 12
@@ -98,7 +101,7 @@ def assignable_roles(actor: dict) -> list[str]:
     if can(actor, "manage_users"):
         return list(ROLES)
     if can(actor, "manage_client_users"):
-        return ["client_admin", "client_user"]
+        return ["client_admin", "client_user", "vendor"]
     return []
 
 

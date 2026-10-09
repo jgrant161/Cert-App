@@ -12,7 +12,7 @@
     <a class="brand" href="/">Certificate Review</a>
     {% if user %}
     <nav class="menu">
-      <a href="/">Clients</a>
+      {% if user.role == "vendor" %}<a href="/portal">Certificate requests</a>{% else %}<a href="/">Clients</a>{% endif %}
       {% if can(user, "manage_users") or can(user, "manage_client_users") %}<a href="/users">Users</a>{% endif %}
       {% if can(user, "view_audit") %}<a href="/activity">Activity</a>{% endif %}
       <a href="/account" title="{{ user.email }}">{{ user.name }} <span class="role">{{ ROLES[user.role] }}</span></a>

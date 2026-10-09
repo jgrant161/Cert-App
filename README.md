@@ -90,6 +90,7 @@ Tests: `pytest`
 | **Firm staff** | Only clients assigned to them | Upload, review, overrides, review policy, questions, Excel export |
 | **Client administrator** | Only their own company | View the schedule and follow-ups, download Excel, add and remove their company's users |
 | **Client user** | Only their own company | View the schedule and follow-ups, download Excel |
+| **Vendor** | Only their own certificate requests, in one client's vendor portal | Ask whether a sale is exempt and download the certificate the portal hands out |
 
 - **Firm accounts must use an @insighttaxadvisors.com address.** Firm administrator and firm
   staff accounts with any other domain cannot be created, cannot be promoted to, and cannot sign
@@ -112,6 +113,35 @@ Tests: `pytest`
 - Locked out? `python -m certapp create-admin --email you@firm.com --name "Your Name"` prints a
   link to set a password; `python -m certapp sign-in-link --email someone@x.com` makes a new link
   for an existing password user.
+
+## Vendor certificate portal (prototype)
+
+A client's vendors sign in, choose the project they are selling to (grouped by buying entity),
+list their items with a category, and get one of three answers per item:
+
+- **Exempt**: the matching signed certificate is ready to download.
+- **Taxable**: charge sales tax.
+- **Needs review**: contact the client's tax team (shown on the page, with the request number).
+
+The firm sets up each client's portal from the client page (**Vendor portal**): buying entities,
+projects (state and type), item categories, rules, the certificate library (signed PDFs) and the
+contact. Rules decide everything; nothing is guessed. The most specific rule wins (a rule for the
+project's state beats "any state", then a rule for the project type beats "any type"). An item no
+rule covers, or an exemption with no current certificate on file, goes to the contact. Every
+request and every certificate download is logged. Vendors are added on the **Users** page with
+the Vendor role and see only their own requests. `tests/test_portal.py` checks the rules and the
+separation.
+
+Try it with sample data (made-up rules, not tax advice):
+
+```
+python scripts/seed_portal_demo.py
+python -m certapp serve
+```
+
+Sign in as `vendor@acme-supply.test` (vendor) or `demo.admin@insighttaxadvisors.com` (firm),
+password `demo-password-1`. Try the Houston project with "Manufacturing machinery and equipment"
+(exempt, certificate) and the Tampa project with "Construction materials" (contact).
 
 ## Cloud hosting
 
