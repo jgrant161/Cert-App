@@ -8,7 +8,11 @@
       <p class="crumb"><a href="/">Engagements</a> / <a href="/e/{{ e.id }}?tab=certificates">{{ e.client_name }}</a></p>
       <h1 class="file">{{ c.cert.filename }}</h1>
       <p class="muted">Batch {{ c.cert.batch_label }} · <span class="pill st-{{ c.cert.status }}">{{ c.cert.status }}</span>
-        {% if c.cert.extractor %} · read by {{ c.cert.extractor }}{% endif %}</p>
+        {% if c.cert.extractor %} · read by {{ c.cert.extractor }}{% endif %}
+        {% if c.cert.pages %} · page{{ "s" if "-" in c.cert.pages or "," in c.cert.pages }} {{ c.cert.pages }} of the file{% endif %}</p>
+      <p class="cert-status"><span class="pill status-{{ c.status|lower }}">{{ c.status }}</span>
+        {% if c.status_reason %}<span class="small">{{ c.status_reason }}</span>{% endif %}
+        {% if c.cert.status_override %}<span class="small muted">(status set by a reviewer)</span>{% endif %}</p>
     </div>
     <div class="actions">
       {% if prev_id %}<a class="button ghost" href="/e/{{ e.id }}/c/{{ prev_id }}">← Previous</a>{% endif %}
@@ -19,7 +23,7 @@
 
 <div class="split">
   <section class="card pdf">
-    <iframe src="/e/{{ e.id }}/c/{{ c.cert.id }}/pdf" title="Certificate PDF"></iframe>
+    <iframe src="/e/{{ e.id }}/c/{{ c.cert.id }}/pdf#page={{ c.cert.pages.split("-")[0].split(",")[0] if c.cert.pages else 1 }}" title="Certificate PDF"></iframe>
   </section>
 
   <section class="card">
@@ -35,18 +39,26 @@
       <dt>State</dt><dd>{{ fn.state or fn.state_token or "—" }} ({{ fn.kind }})</dd>
     </dl>
 
-    {% if c.extraction %}{% set x = c.extraction %}
+    {% if c.extraction %}{% set x = c.extraction %}{% set fc = x.field_confidence.model_dump() if x.field_confidence else {} %}
+    {% macro conf(part) %}{% if fc.get(part) in ("medium", "low") %}<span class="conf conf-{{ fc[part] }}" title="Reader's confidence in this part">{{ fc[part] }} confidence</span>{% endif %}{% endmacro %}
     <h2>Document says</h2>
     <dl class="kv">
-      <dt>Form number</dt><dd>{{ x.form_number or "—" }}</dd>
+      <dt>Customer</dt><dd>{{ c.customer }}</dd>
+      <dt>Form number</dt><dd>{{ x.form_number or "—" }}{{ conf("form") }}</dd>
       <dt>Form name</dt><dd>{{ x.form_name or "—" }} ({{ x.form_family|replace("_", " ") }})</dd>
-      <dt>Purchaser</dt><dd>{{ x.purchaser.name or "—" }}{% if x.purchaser.address %}<br><span class="small">{{ x.purchaser.address }}</span>{% endif %}</dd>
-      <dt>Seller</dt><dd>{{ x.seller.name or "—" }}</dd>
+      <dt>Purchaser</dt><dd>{{ x.purchaser.name or "—" }}{{ conf("purchaser") }}<br><span class="small">{{ x.purchaser.address or "No address filled in" }}</span></dd>
+      <dt>Seller</dt><dd>{{ x.seller.name or "—" }}{{ conf("seller") }}
+        {% if c.seller_match %}<span class="small {{ 'bad' if c.seller_match == 'Does not match' }}"> · {{ c.seller_match }}{% if e.seller_name %} ({{ e.seller_name }}){% endif %}</span>{% endif %}</dd>
       <dt>Type</dt><dd>{{ x.certificate_type|replace("_", " ") }}{% if x.exemption_reason %} — {{ x.exemption_reason }}{% endif %}</dd>
-      <dt>Signed</dt><dd>{{ {True: "Yes", False: "No", None: "—"}[x.signed] }}{% if x.signature_date %} ({{ x.signature_date }}){% endif %}</dd>
-      <dt>Expires</dt><dd>{{ x.expiration_date or "No date stated" }}</dd>
-      <dt>Confidence</dt><dd>{{ x.confidence }}</dd>
+      <dt>Signed</dt><dd>{{ {True: "Yes", False: "No", None: "—"}[x.signed] }}{% if x.signature_date %} ({{ x.signature_date }}){% endif %}{{ conf("signature") }}</dd>
+      <dt>Expires</dt><dd>{{ x.expiration_date or "No date stated" }}{{ conf("expiration") }}</dd>
+      <dt>State lines</dt><dd>{{ x.jurisdiction_lines|length }} read{{ conf("registration_numbers") }}</dd>
+      <dt>Confidence</dt><dd>{{ x.confidence }} overall{% if fc %}<span class="small muted"> · parts marked above when less than high</span>{% endif %}</dd>
     </dl>
+    {% endif %}
+    {% if c.other_pages %}
+    <h2>Pages that are not certificates</h2>
+    <ul class="flags">{% for o in c.other_pages %}<li>Page{{ "s" if o.pages|length > 1 }} {{ o.pages|join(", ") }}: {{ o.description }}</li>{% endfor %}</ul>
     {% endif %}
 
     {% if c.flags %}
@@ -59,7 +71,7 @@
     {% if c.line_decisions %}
     <h2>State lines</h2>
     <table class="grid lines">
-      <thead><tr><th>State</th><th>On the line</th><th>Reading</th><th>Schedule?</th><th></th></tr></thead>
+      <thead><tr><th>State</th><th>On the line</th><th>Reading</th><th>Schedule?</th><th>Status</th><th></th></tr></thead>
       <tbody>
       {% for d in c.line_decisions %}{% set l = d.line %}
         <tr class="{{ 'in' if d.include else 'out' }}">
@@ -67,6 +79,8 @@
           <td class="mono">{{ l.raw_text or "(blank)" }}</td>
           <td class="small">{{ l.classification|replace("_", " ") }}{% if l.id_issuing_state %} ({{ l.id_issuing_state }} number){% endif %}</td>
           <td class="small"><b>{{ "Yes" if d.include else "No" }}</b> — {{ d.reason }}</td>
+          <td class="small"><span class="pill status-{{ d.status|lower }}">{{ d.status }}</span>
+            {% if d.expires %}<br><span title="{{ d.expiration_basis }}">expires {{ d.expires }}</span>{% elif d.expiration_basis %}<br>{{ d.expiration_basis }}{% endif %}</td>
           <td>
             {% if can(user, "work") %}
             <form method="post" action="/e/{{ e.id }}/c/{{ c.cert.id }}/override" class="inline">
@@ -95,7 +109,14 @@
           <option value="{{ s }}" {{ 'selected' if c.cert.review_status == s }}>{{ s|replace("_", " ")|title }}</option>
         {% endfor %}
       </select>
-      <textarea name="note" rows="2" placeholder="Reviewer note (appears on the Reconciliation tab)">{{ c.cert.reviewer_note or "" }}</textarea>
+      <label class="small">Status <select name="status_override">
+        <option value="">Automatic ({{ "set by the rules" }})</option>
+        <option value="valid" {{ 'selected' if c.cert.status_override == 'valid' }}>Valid (reviewer decision)</option>
+        <option value="invalid" {{ 'selected' if c.cert.status_override == 'invalid' }}>Invalid (reviewer decision)</option>
+      </select></label>
+      <textarea name="note" rows="2" placeholder="Reviewer note (appears in the Excel export)">{{ c.cert.reviewer_note or "" }}</textarea>
+      <p class="small muted">Marking a certificate Reviewed clears Pending once you have checked the reviewer flags. Use the status
+        override only for a judgment the rules cannot make, and say why in the note.</p>
       <button>Save</button>
     </form>
     {% endif %}

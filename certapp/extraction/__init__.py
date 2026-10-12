@@ -1,6 +1,6 @@
 import os
 
-from .schema import Extraction, JurisdictionLine, Party
+from .schema import Extraction, JurisdictionLine, OtherPage, Party, Reading
 
 _CREDENTIAL_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE",
                     "ANTHROPIC_FEDERATION_RULE_ID")
@@ -26,4 +26,4 @@ def default_extractor():
     return DemoExtractor()
 
 
-__all__ = ["Extraction", "JurisdictionLine", "Party", "ai_available", "default_extractor"]
+__all__ = ["Extraction", "JurisdictionLine", "OtherPage", "Party", "Reading", "ai_available", "default_extractor"]

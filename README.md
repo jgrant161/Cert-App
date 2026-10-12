@@ -16,11 +16,15 @@ engagements into a product a firm can run for every client.
 |---|---|
 | **Intake** | Drag in PDFs or a `.zip` (nested zips are fine). Each upload is a *batch* ("9.30.26 Certs"). Files already on file are recognised by content hash and skipped, so when a client re-sends an overlapping folder, only the new files are added. Byte-identical copies saved under a new name are linked to the original, never re-read, and still listed on the reconciliation. |
 | **Filename parsing** | Both naming conventions seen so far: `Code Company Type State` and `Company - Type (State)`, plus `Multijurisdiction` and `TBD` tokens. The filename is treated as a hint. The document always wins. |
-| **AI reading** | Claude reads each PDF and reports what is on the page: form, purchaser, certificate type, signature, expiry, and **every state line on multistate grids** with the exact text and a classification (registration number, home-state number, FEIN, N/A, blank, dashed, "See attached", other text). |
-| **Review policy** | The judgment calls (does "N/A" count? a home-state number? an FEIN on every line? a number followed by "exempt per nexus rules"?) are per-client toggles. Change one and the schedule re-scores instantly. Nothing is re-read. |
+| **AI reading** | Claude reads each PDF and reports what is on the page: form, purchaser and address, seller, certificate type, exemption reason, signature and date, expiry, and **every state line on multistate grids** with the exact text and a classification (registration number, home-state number, FEIN, N/A, blank, dashed, "See attached", other text). It rates its confidence in each part, so reviewers know where to look. |
+| **Bundled files** | A PDF holding several certificates is split: each certificate gets its own row tied to its pages, and pages that are not certificates (cover letters, W-9s) are listed and left off the schedule. |
+| **Validity status** | Every certificate and schedule row is **Valid**, **Invalid** (unsigned, made out to another seller, no purchaser, a form the state does not accept, no qualifying state), **Expired** (the stated date, or the state's rule when no date is stated), or **Pending** (not read yet, or waiting on a reviewer). Hover a status for the reason. |
+| **Review policy** | The judgment calls (does "N/A" count? a home-state number? an FEIN on every line? a number followed by "exempt per nexus rules"?) are per-client toggles, with state-by-state exceptions for home-state numbers and FEINs. The policy also holds the states that refuse the MTC Uniform certificate, each state's expiration rule, and whether expired certificates stay on the schedule. Change one and the schedule re-scores instantly. Nothing is re-read. Streamlined (SST) certificates are checked against the SST member list built into the app. |
+| **Exemption types** | Government, nonprofit, manufacturing, agricultural and direct-pay certificates are not held to the resale registration-number test; a missing exemption reason is flagged instead. |
+| **Customers** | Name variants ("Acme Supply, Inc." / "ACME Supply") are joined into one customer automatically; reviewers join parents, subsidiaries and trade names by hand. |
 | **Flags** | Wrong state in the filename, multijurisdiction files that are really single-state, TBD files resolved, no qualifying state, the same number repeated across states, nexus disclaimers, expired or expiring certificates, unsigned forms, entity-based exemptions, exact and content duplicates, low-confidence reads, and anything else the reader noticed (for example extra certificates bundled on later pages). |
-| **Reviewer workspace** | Each certificate opens side by side with its PDF, showing every state line, whether it made the schedule and why, and one-click include/exclude overrides. Review status and notes carry through to the export. |
-| **Excel export** | Overview (including the policy used), Schedule (colour-coded), Summary by State, Summary by Company, Follow-Up, Excluded Lines, Reconciliation (every source file and the rows it produced, with totals), and Batches. |
+| **Reviewer workspace** | Each certificate opens side by side with its PDF, showing every state line, whether it made the schedule and why, its status per state, and one-click include/exclude overrides. Marking it Reviewed clears Pending; a reviewer can also set the status by hand with a note. Review status and notes carry through to the export. |
+| **Excel export** | Overview (including the policy used and status counts), Schedule (status, validity fields, flags, review status and reviewer notes on every row), Summary by State, Summary by Customer, Customers, Follow-Up, Excluded Lines, Reconciliation (every certificate and the rows it produced, with totals), and Batches. |
 | **Ask about this client** | Questions such as "Which customers have no qualifying registration?" or "What do we need to request before year end?" are answered from the engagement's data, citing source files. |
 
 ## Running it
@@ -188,18 +192,5 @@ fallback enabled.
 
 ## Taking it to market: what's next
 
-Phase 1 (done): sign-in with four roles, client separation, an activity log, Microsoft 365
-sign-in for staff, and the pieces needed to host it (PostgreSQL, container, Azure guide).
-
-Next:
-
-1. **Client portal polish (Phase 2)**: two-step sign-in for client password accounts, sending invitation emails from the app, and a client-facing summary page.
-2. **Security program**: retention schedules, a tested restore, and a SOC 2 path when larger clients ask for it. Certificates contain tax IDs.
-3. **Ongoing certificate management** (the recurring-revenue feature): an expiry calendar, automated renewal requests to the seller's customers, and a customer-facing upload link so new certificates arrive already in the right engagement.
-4. **Coverage testing**: match certificates against the client's sales by customer and ship-to state to show exempt sales that lack a valid certificate. That is the audit-exposure number a CFO cares about.
-5. **Cost and scale**: route large backlogs through the Message Batches API (about half the cost, asynchronous) and keep interactive uploads on the standard API.
-6. **Accuracy program**: keep the AEI and Additive Manufacturing schedules as a labelled test set and measure every prompt or model change against them before it ships.
-
-Packaging options: a per-engagement service (the firm runs it and delivers the
-workbook, as today), or a subscription for the seller's own tax team with the
-firm as reviewer of record.
+The build-out plan, with what is done and what comes next, is in
+[docs/ROADMAP.md](docs/ROADMAP.md).

@@ -46,7 +46,11 @@ CREATE TABLE IF NOT EXISTS certificate (
     duplicate_of INTEGER REFERENCES certificate(id),
     review_status TEXT NOT NULL DEFAULT 'open',  -- open | reviewed | follow_up
     reviewer_note TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    parent_id INTEGER REFERENCES certificate(id),   -- set on certificates split out of a bundled file
+    pages TEXT,                                  -- the file's pages this certificate covers, e.g. "3-4"
+    other_pages_json TEXT,                       -- pages of the file that are not certificates
+    status_override TEXT                         -- valid | invalid, set by a reviewer
 );
 CREATE INDEX IF NOT EXISTS certificate_hash ON certificate (engagement_id, sha256);
 CREATE TABLE IF NOT EXISTS line_override (
@@ -239,6 +243,13 @@ def connect():
         raw.close()
 
 
+# Columns added after the first release, so older databases are upgraded in place.
+_ADDED_COLUMNS = {
+    "certificate": [("parent_id", "INTEGER REFERENCES certificate(id)"), ("pages", "TEXT"),
+                    ("other_pages_json", "TEXT"), ("status_override", "TEXT")],
+}
+
+
 def init() -> None:
     with connect() as conn:
         if conn.postgres:
@@ -246,6 +257,15 @@ def init() -> None:
         else:
             conn.raw.execute("PRAGMA journal_mode = WAL")
             conn.raw.executescript(SCHEMA.format(pk="INTEGER PRIMARY KEY"))
+        for table, columns in _ADDED_COLUMNS.items():
+            if conn.postgres:
+                have = {r["column_name"] for r in conn.all(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = ?", (table,))}
+            else:
+                have = {r["name"] for r in conn.all(f"PRAGMA table_info({table})")}
+            for name, decl in columns:
+                if name not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 def ping() -> bool:
@@ -290,7 +310,7 @@ def delete_engagement(eid: int) -> None:
     with connect() as conn:
         conn.execute("""DELETE FROM line_override WHERE certificate_id IN
                         (SELECT id FROM certificate WHERE engagement_id = ?)""", (eid,))
-        conn.execute("UPDATE certificate SET duplicate_of = NULL WHERE engagement_id = ?", (eid,))
+        conn.execute("UPDATE certificate SET duplicate_of = NULL, parent_id = NULL WHERE engagement_id = ?", (eid,))
         for table in ("portal_request", "portal_rule", "portal_certificate", "portal_project",
                       "portal_category", "portal_entity", "portal_contact"):
             conn.execute(f"DELETE FROM {table} WHERE engagement_id = ?", (eid,))
@@ -333,8 +353,8 @@ def get_batch(bid: int) -> dict | None:
 
 def find_by_hash(eid: int, sha: str) -> list[dict]:
     with connect() as conn:
-        return conn.all("SELECT * FROM certificate WHERE engagement_id = ? AND sha256 = ? ORDER BY id",
-                        (eid, sha))
+        return conn.all("""SELECT * FROM certificate WHERE engagement_id = ? AND sha256 = ?
+                           AND parent_id IS NULL ORDER BY id""", (eid, sha))
 
 
 def add_certificate(eid: int, bid: int, filename: str, sha: str, path: str,
@@ -388,13 +408,48 @@ def save_extraction(cid: int, extractor: str, extraction_json: str) -> None:
                         error = NULL WHERE id = ?""", (extractor, extraction_json, cid))
 
 
+def save_reading(cid: int, extractor: str, extractions: list[str], pages: list[str | None],
+                 other_pages_json: str | None) -> list[int]:
+    """Store a file's reading. The first certificate stays on the file's own row; each further
+    certificate found in the same file gets a row of its own, pointing back at it."""
+    with connect() as conn:
+        _delete_children(conn, cid)
+        conn.execute("""UPDATE certificate SET status = 'extracted', extractor = ?, extraction_json = ?,
+                        error = NULL, pages = ?, other_pages_json = ? WHERE id = ?""",
+                     (extractor, extractions[0], pages[0], other_pages_json, cid))
+        parent = conn.one("SELECT * FROM certificate WHERE id = ?", (cid,))
+        ids = [cid]
+        for ex_json, page in zip(extractions[1:], pages[1:]):
+            label = f"{parent['filename']} (pages {page})" if page else f"{parent['filename']} (part {len(ids) + 1})"
+            ids.append(conn.insert(
+                """INSERT INTO certificate (engagement_id, batch_id, filename, sha256, storage_path, filename_json,
+                                            status, extractor, extraction_json, parent_id, pages, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'extracted', ?, ?, ?, ?, ?)""",
+                (parent["engagement_id"], parent["batch_id"], label, parent["sha256"], parent["storage_path"],
+                 parent["filename_json"], extractor, ex_json, cid, page, now())))
+        return ids
+
+
+def _delete_children(conn, cid: int) -> None:
+    conn.execute("""DELETE FROM line_override WHERE certificate_id IN
+                    (SELECT id FROM certificate WHERE parent_id = ?)""", (cid,))
+    conn.execute("DELETE FROM certificate WHERE parent_id = ?", (cid,))
+
+
+def set_status_override(cid: int, status: str | None) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE certificate SET status_override = ? WHERE id = ?", (status, cid))
+
+
 def save_error(cid: int, error: str) -> None:
     with connect() as conn:
         conn.execute("UPDATE certificate SET status = 'error', error = ? WHERE id = ?", (error, cid))
 
 
 def requeue(cid: int) -> None:
+    """Read a file again. Certificates split out of it are rebuilt by the new reading."""
     with connect() as conn:
+        _delete_children(conn, cid)
         conn.execute("UPDATE certificate SET status = 'pending', error = NULL WHERE id = ?", (cid,))
 
 

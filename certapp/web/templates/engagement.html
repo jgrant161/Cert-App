@@ -27,6 +27,12 @@
     {% if user.role in ("firm_admin", "firm_staff") %}<div><b>{{ result.flag_counts()["review"] or 0 }}</b><span>reviewer checks</span></div>{% endif %}
     {% if statuses.error %}<div class="bad"><b>{{ statuses.error }}</b><span>errors</span></div>{% endif %}
   </div>
+  {% set sc = result.status_counts() %}
+  <p class="status-line">Certificates:
+    {% for s in ["Valid", "Invalid", "Expired", "Pending"] %}
+      <a href="?tab=certificates&status={{ s }}" class="pill status-{{ s|lower }}">{{ sc[s] or 0 }} {{ s }}</a>
+    {% endfor %}
+  </p>
 
   {% if intake %}
   <div class="notice ok">
@@ -76,7 +82,7 @@
 
 <nav class="tabs">
   {% for key, label, action in [("schedule", "Schedule", "view"), ("followup", "Follow-up (" ~ follow|length ~ ")", "view"),
-                        ("certificates", "Certificates", "view"), ("excluded", "Excluded lines", "work"),
+                        ("certificates", "Certificates", "view"), ("customers", "Customers", "view"), ("excluded", "Excluded lines", "work"),
                         ("ask", "Ask about this client", "ask"), ("policy", "Review policy", "policy"), ("batches", "Batches", "work")] %}
     {% if can(user, action) %}<a href="?tab={{ key }}" class="{{ 'active' if tab == key else '' }}">{{ label }}</a>{% endif %}
   {% endfor %}
@@ -86,25 +92,34 @@
 {% if tab == "schedule" %}
   <form class="row filter" method="get">
     <input type="hidden" name="tab" value="schedule">
-    <input name="q" value="{{ q }}" placeholder="Search company, file, or number">
+    <input name="q" value="{{ q }}" placeholder="Search customer, file, or number">
     <select name="state"><option value="">All states</option>
       {% for s, n in result.by_state() %}<option value="{{ s }}" {{ 'selected' if s == state }}>{{ s }} ({{ n }})</option>{% endfor %}
     </select>
+    <select name="status"><option value="">All statuses</option>
+      {% for s in ["Valid", "Invalid", "Expired", "Pending"] %}<option {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}
+    </select>
     <button>Filter</button>
   </form>
-  <p class="muted">{{ rows|length }} rows. Green: state resolved from document. Orange: filename state corrected. Blue: reviewer override. Yellow: flagged.</p>
+  <p class="muted">{{ rows|length }} rows. Green row: state resolved from the document. Orange: filename state corrected. Blue: reviewer override. Status: <b>Valid</b> nothing outstanding · <b>Invalid</b> a defect the client must fix ·
+    <b>Expired</b> past its expiration date · <b>Pending</b> not read yet or waiting on a reviewer. Hover a status for the reason.</p>
   <div class="scroll"><table class="grid">
-    <thead><tr><th>Company</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Form No.</th><th>Form name</th><th>Source file</th><th>Flags</th></tr></thead>
+    <thead><tr><th>Customer</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Status</th><th>Signed</th><th>Expires</th><th>Form</th><th>Source file</th><th>Flags</th></tr></thead>
     <tbody>
     {% for r in rows %}
       <tr class="basis-{{ r.basis }} {{ 'flagged' if r.flags }}">
-        <td>{{ r.company }}</td><td>{{ r.certificate_type }}</td><td>{{ r.state }}</td>
-        <td class="mono">{{ r.registration or "" }}</td><td class="mono nowrap">{{ r.form_number or "" }}</td><td>{{ r.form_name or "" }}</td>
+        <td>{{ r.customer or r.company }}{% if r.customer and r.customer != r.company %}<br><span class="small muted">as {{ r.company }}</span>{% endif %}</td>
+        <td>{{ r.certificate_type }}</td><td>{{ r.state }}</td>
+        <td class="mono">{{ r.registration or "" }}</td>
+        <td><span class="pill status-{{ r.status|lower }}" title="{{ r.status_reason }}">{{ r.status }}</span></td>
+        <td class="nowrap small">{{ {True: "Yes", False: "No", None: "—"}[r.signed] }}{% if r.signature_date %}<br>{{ r.signature_date }}{% endif %}</td>
+        <td class="nowrap small" title="{{ r.expiration_basis }}">{{ r.expires or "None stated" }}{% if r.expires and r.expiration_basis and r.expiration_basis != "Stated on the certificate" %}<br><span class="muted">state rule</span>{% endif %}</td>
+        <td class="small"><span class="mono nowrap">{{ r.form_number or "" }}</span> {{ r.form_name or "" }}</td>
         <td><a href="/e/{{ e.id }}/c/{{ r.certificate_id }}">{{ r.source_file }}</a></td>
         <td class="small">{{ r.flags|unique|join(", ")|replace("_", " ") }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="muted">No rows yet. Upload certificates to begin.</td></tr>
+      <tr><td colspan="10" class="muted">No rows{{ " match this filter" if q or state or status else " yet. Upload certificates to begin" }}.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
@@ -128,19 +143,58 @@
   </table></div>
 
 {% elif tab == "certificates" %}
+  {% set shown_certs = result.certificates|selectattr("status", "equalto", status)|list if status else result.certificates %}
+  {% if status %}<p class="muted">Showing {{ shown_certs|length }} {{ status }} certificate{{ "s" if shown_certs|length != 1 }}. <a href="?tab=certificates">Show all</a></p>{% endif %}
   <div class="scroll"><table class="grid">
-    <thead><tr><th>File</th><th>Batch</th><th>Form No.</th><th>Form name</th><th>Status</th><th class="num">Rows</th><th>States</th><th>Review</th></tr></thead>
+    <thead><tr><th>File</th><th>Customer</th><th>Status</th><th>Form</th><th>Reading</th><th class="num">Rows</th><th>States</th><th>Review</th><th>Batch</th></tr></thead>
     <tbody>
-    {% for c in result.certificates|sort(attribute="cert.filename") %}
-      <tr><td><a href="/e/{{ e.id }}/c/{{ c.cert.id }}">{{ c.cert.filename }}</a></td>
-        <td>{{ c.cert.batch_label }}</td>
-        <td class="mono nowrap">{{ c.extraction.form_number or "" if c.extraction }}</td>
-        <td>{{ c.extraction.form_name or "" if c.extraction }}</td>
+    {% for c in shown_certs|sort(attribute="cert.filename") %}
+      <tr><td><a href="/e/{{ e.id }}/c/{{ c.cert.id }}">{{ c.cert.filename }}</a>
+          {% if c.split_into %}<br><span class="small muted">held {{ c.split_into + 1 }} certificates</span>{% endif %}</td>
+        <td>{{ c.customer }}</td>
+        <td><span class="pill status-{{ c.status|lower }}" title="{{ c.status_reason }}">{{ c.status }}</span></td>
+        <td class="small"><span class="mono nowrap">{{ c.extraction.form_number or "" if c.extraction }}</span> {{ c.extraction.form_name or "" if c.extraction }}</td>
         <td><span class="pill st-{{ c.cert.status }}">{{ c.cert.status }}</span></td>
         <td class="num">{{ c.rows|length }}</td>
         <td class="small">{{ c.rows|map(attribute="state")|unique|join(", ") }}</td>
-        <td>{{ c.cert.review_status|replace("_", " ") }}</td></tr>
-    {% else %}<tr><td colspan="8" class="muted">No certificates yet.</td></tr>{% endfor %}
+        <td>{{ c.cert.review_status|replace("_", " ") }}</td>
+        <td class="small">{{ c.cert.batch_label }}</td></tr>
+    {% else %}<tr><td colspan="9" class="muted">No certificates{{ " with this status" if status else " yet" }}.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+
+{% elif tab == "customers" %}
+  <p class="muted">Each customer once, with every name it appears under. Spelling variants ("Inc." or not,
+    punctuation, capitals) are joined automatically.{% if can(user, "work") %} Join a parent and its subsidiary,
+    or a trade name, with <b>Join into</b>.{% endif %}</p>
+  {% set custs = result.customers() %}
+  <div class="scroll"><table class="grid">
+    <thead><tr><th>Customer</th><th>Names on file</th><th class="num">Certificates</th><th>Status</th><th>States scheduled</th>{% if can(user, "work") %}<th>Join into</th>{% endif %}</tr></thead>
+    <tbody>
+    {% for cu in custs %}
+      <tr><td><b>{{ cu.name }}</b></td>
+        <td class="small">{{ cu.variants|join("; ") }}</td>
+        <td class="num">{{ cu.certificates|length }}</td>
+        <td class="small">{% for s in ["Valid", "Invalid", "Expired", "Pending"] if cu.statuses[s] %}<span class="pill status-{{ s|lower }}">{{ cu.statuses[s] }} {{ s }}</span> {% endfor %}</td>
+        <td class="small">{{ cu.states|sort|join(", ") }}</td>
+        {% if can(user, "work") %}<td>
+          <form method="post" action="/e/{{ e.id }}/customers/merge" class="inline join-form">
+            <input type="hidden" name="source" value="{{ cu.name }}">
+            <select name="target" aria-label="Join {{ cu.name }} into another customer">
+              <option value="">Choose a customer</option>
+              {% for other in custs if other.name != cu.name %}<option value="{{ other.name }}">{{ other.name }}</option>{% endfor %}
+            </select>
+            <button class="ghost-btn">Join</button>
+          </form>
+          {% if cu.name_keys|length > 1 %}
+          {% for k in cu.name_keys|sort if k != cu.key and policy.customer_aliases.get(k) %}
+          <form method="post" action="/e/{{ e.id }}/customers/merge" class="inline">
+            <input type="hidden" name="source" value="{{ k }}"><button class="link small">Separate "{{ k }}"</button>
+          </form>
+          {% endfor %}
+          {% endif %}
+        </td>{% endif %}</tr>
+    {% else %}<tr><td colspan="6" class="muted">No customers yet.</td></tr>{% endfor %}
     </tbody>
   </table></div>
 
@@ -178,8 +232,34 @@
   <form method="post" action="/e/{{ e.id }}/policy" class="policy">
     {% for key, label in labels.items() %}
       <label class="check"><input type="checkbox" name="{{ key }}" {{ 'checked' if policy[key] }}> {{ label }}</label>
+      {% if key == "include_home_state_numbers" %}
+      <label class="indent">…except in these states (the opposite applies there)
+        <input name="home_state_exceptions" value="{{ policy.home_state_exceptions }}" placeholder="e.g. AL, CT"></label>
+      {% elif key == "include_fein" %}
+      <label class="indent">…except in these states (the opposite applies there)
+        <input name="fein_exceptions" value="{{ policy.fein_exceptions }}" placeholder="e.g. TX"></label>
+      {% endif %}
     {% endfor %}
     <label>Flag certificates expiring within <input type="number" name="expiring_soon_days" value="{{ policy.expiring_soon_days }}" min="0" class="short"> days</label>
+
+    <h3>Form acceptance</h3>
+    <p class="small muted">A Streamlined (SST) certificate is flagged Invalid for any state that is not an SST member
+      (23 full members plus Tennessee as an associate, as of October 2026). Some non-member states do accept it: use a
+      reviewer override for those. Your tax team keeps the Uniform list below current.</p>
+    <label>States that do not accept the MTC Uniform certificate
+      <input name="uniform_not_accepted" value="{{ policy.uniform_not_accepted }}" placeholder="e.g. HI, MD"></label>
+
+    <h3>Expiration rules when a certificate states no date</h3>
+    <p class="small muted">One state per line: a number of years from the signature date (<code>IL: 3 years</code>),
+      December 31 of the year signed (<code>FL: calendar year</code>), or no expiration (<code>TX: none</code>).
+      A date printed on the certificate always wins. Your tax team confirms each state's rule before relying on it.</p>
+    <textarea name="expiration_rules" rows="5" placeholder="IL: 3 years&#10;FL: calendar year">{{ policy.expiration_rules }}</textarea>
+    {% set parsed, unreadable = expiration_rules %}
+    {% if parsed or unreadable %}
+    <p class="small">Read as:
+      {% for st, rule in parsed|dictsort %}<b>{{ st }}</b> {{ describe_rule(rule) }}{% if not loop.last %} · {% endif %}{% endfor %}
+      {% if unreadable %}<br><span class="bad">Not understood, ignored: {{ unreadable|join("; ") }}</span>{% endif %}</p>
+    {% endif %}
     <button>Save policy</button>
   </form>
 

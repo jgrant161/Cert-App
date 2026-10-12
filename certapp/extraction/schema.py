@@ -54,6 +54,19 @@ class JurisdictionLine(BaseModel):
     note: str | None
 
 
+Confidence = Literal["high", "medium", "low"]
+
+
+class FieldConfidence(BaseModel):
+    """How sure the reader is of each part, so reviewers know where to look."""
+    form: Confidence = Field(description="Form number, title and family")
+    purchaser: Confidence = Field(description="Purchaser name and address")
+    seller: Confidence = Field(description="Seller name")
+    registration_numbers: Confidence = Field(description="The numbers and text on the state lines")
+    signature: Confidence = Field(description="Whether it is signed, and the signature date")
+    expiration: Confidence = Field(description="The expiration date, or that none is stated")
+
+
 class Party(BaseModel):
     name: str | None
     address: str | None
@@ -85,6 +98,11 @@ class Extraction(BaseModel):
     expiration_date: str | None = Field(description="ISO date YYYY-MM-DD, null if none stated")
     blanket: bool | None
     page_count_reviewed: int
+    source_pages: list[int] = Field(
+        default_factory=list,  # empty on readings saved before files were split
+        description="1-based page numbers of the file that make up this certificate")
+    field_confidence: FieldConfidence | None = Field(
+        default=None, description="Confidence in each part of the reading")
     observations: list[str] = Field(
         description="Anything a reviewer should know: wrong form for the state, extra bundled "
                     "certificates on later pages, illegible areas, entries written outside the grid"
@@ -92,9 +110,29 @@ class Extraction(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+OtherPageKind = Literal["cover_letter", "w9", "invoice", "correspondence", "blank", "other"]
+
+
+class OtherPage(BaseModel):
+    pages: list[int] = Field(description="1-based page numbers")
+    kind: OtherPageKind
+    description: str = Field(description="What the page is, in a few words")
+
+
+class Reading(BaseModel):
+    """Everything in one uploaded file: each separate certificate, plus pages that are not certificates."""
+    certificates: list[Extraction] = Field(
+        description="One entry per separate certificate in the file, in page order. A multistate form "
+                    "is one certificate; separate state forms bundled in one file are separate entries")
+    other_pages: list[OtherPage] = Field(
+        description="Pages that are not certificates (cover letters, W-9s, invoices, blank pages)")
+
+
 def json_schema() -> dict:
     """Strict JSON schema for structured outputs (every key required, no extras)."""
-    schema = Extraction.model_json_schema()
+    schema = Reading.model_json_schema()
+    # Optional only so older saved readings load; a new reading always reports it.
+    schema["$defs"]["Extraction"]["properties"]["field_confidence"] = {"$ref": "#/$defs/FieldConfidence"}
     _strictify(schema)
     for d in schema.get("$defs", {}).values():
         _strictify(d)

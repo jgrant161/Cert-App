@@ -30,7 +30,8 @@ from ..export import build_workbook
 from ..extraction import ai_available, default_extractor
 from ..ingest import ingest
 from ..pipeline import process_engagement
-from ..rules import POLICY_LABELS, Policy, score_engagement
+from ..rules import (POLICY_LABELS, TEXT_SETTINGS, Policy, customer_key, describe_rule,
+                     parse_expiration_rules, score_engagement)
 from ..states import STATES
 from . import portal_routes
 
@@ -168,7 +169,8 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
     def score(e: dict):
         policy = Policy.from_json(e["policy_json"])
         certs = db.list_certificates(e["id"])
-        return policy, score_engagement(certs, policy, db.overrides_for_engagement(e["id"]))
+        return policy, score_engagement(certs, policy, db.overrides_for_engagement(e["id"]),
+                                        seller_name=e.get("seller_name"))
 
     def back(url: str) -> RedirectResponse:
         return RedirectResponse(url, status_code=303)
@@ -478,7 +480,7 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
 
     @app.get("/e/{eid}")
     def engagement(request: Request, eid: int, tab: str = "schedule", q: str = "", state: str = "",
-                   intake: str = "", delete_error: str = "", user: dict = Depends(signed_in)):
+                   status: str = "", intake: str = "", delete_error: str = "", user: dict = Depends(signed_in)):
         e = need(user, eid)
         firm_tabs = {"excluded": "work", "ask": "ask", "policy": "policy", "batches": "work"}
         if tab in firm_tabs and not auth.can(user, firm_tabs[tab]):
@@ -487,10 +489,12 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         rows = sorted(result.rows, key=lambda r: (r.company.lower(), r.state))
         if q:
             ql = q.lower()
-            rows = [r for r in rows if ql in r.company.lower() or ql in r.source_file.lower()
-                    or ql in (r.registration or "").lower()]
+            rows = [r for r in rows if ql in r.company.lower() or ql in r.customer.lower()
+                    or ql in r.source_file.lower() or ql in (r.registration or "").lower()]
         if state:
             rows = [r for r in rows if r.state == state.upper()]
+        if status:
+            rows = [r for r in rows if r.status == status]
         statuses = {s: 0 for s in ("pending", "processing", "extracted", "error")}
         for c in result.certificates:
             statuses[c.cert["status"]] = statuses.get(c.cert["status"], 0) + 1
@@ -500,7 +504,8 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         follow.sort(key=lambda cf: (cf[1].severity != "follow_up", cf[0].cert["filename"].lower()))
         return render(request, "engagement.html", {
             "e": e, "policy": policy, "labels": POLICY_LABELS, "result": result, "rows": rows,
-            "statuses": statuses, "follow": follow, "tab": tab, "q": q, "state": state,
+            "statuses": statuses, "follow": follow, "tab": tab, "q": q, "state": state, "status": status,
+            "expiration_rules": parse_expiration_rules(policy.expiration_rules), "describe_rule": describe_rule,
             "batches": db.list_batches(eid), "qa": db.list_qa(eid) if auth.can(user, "ask") else [],
             "busy": eid in running, "done": statuses["extracted"] + statuses["error"],
             "intake": _parse_intake(intake, eid), "delete_error": delete_error,
@@ -542,9 +547,11 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
     async def policy(request: Request, eid: int, user: dict = Depends(signed_in)):
         need(user, eid, "policy")
         form = await request.form()
-        p = Policy()
+        p = Policy.from_json(db.get_engagement(eid)["policy_json"])     # keeps customer merges
         for key in POLICY_LABELS:
             setattr(p, key, form.get(key) == "on")
+        for key in TEXT_SETTINGS:
+            setattr(p, key, (form.get(key) or "").strip()[:4000])
         try:
             p.expiring_soon_days = int(form.get("expiring_soon_days") or 90)
         except ValueError:
@@ -615,20 +622,48 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
 
     @app.post("/e/{eid}/c/{cid}/review")
     def review(eid: int, cid: int, review_status: str = Form(...), note: str = Form(""),
-               user: dict = Depends(signed_in)):
+               status_override: str = Form(""), user: dict = Depends(signed_in)):
         need(user, eid, "work")
         c = cert_in(eid, cid)
+        if review_status not in ("open", "reviewed", "follow_up"):
+            raise HTTPException(400, "Unknown review status")
+        override = status_override if status_override in ("valid", "invalid") else None
         db.set_review(cid, review_status, note.strip() or None)
-        db.audit(user, "review", eid, f"{c['filename']}: {review_status}")
+        db.set_status_override(cid, override)
+        db.audit(user, "review", eid, f"{c['filename']}: {review_status}"
+                 + (f", status set to {override}" if override else ""))
         return back(f"/e/{eid}/c/{cid}")
 
     @app.post("/e/{eid}/c/{cid}/retry")
     def retry(eid: int, cid: int, background: BackgroundTasks, user: dict = Depends(signed_in)):
         need(user, eid, "work")
-        cert_in(eid, cid)
-        db.requeue(cid)
+        c = cert_in(eid, cid)
+        target = c["parent_id"] or cid          # a split-out certificate is re-read with its whole file
+        db.requeue(target)
         background.add_task(read_pending, eid)
-        return back(f"/e/{eid}/c/{cid}")
+        return back(f"/e/{eid}/c/{target}")
+
+    # --- customers ---------------------------------------------------------
+
+    @app.post("/e/{eid}/customers/merge")
+    def merge_customers(eid: int, source: str = Form(...), target: str = Form(""),
+                        user: dict = Depends(signed_in)):
+        """Join one customer to another (parent and subsidiary, a trade name), or undo it."""
+        e = need(user, eid, "work")
+        p = Policy.from_json(e["policy_json"])
+        source, target = customer_key(source), customer_key(target)
+        if not source:
+            raise HTTPException(400, "Choose a customer")
+        if target and target != source:
+            p.customer_aliases[source] = target
+            for k, v in list(p.customer_aliases.items()):     # anything merged into source follows it
+                if v == source:
+                    p.customer_aliases[k] = target
+        else:
+            p.customer_aliases = {k: v for k, v in p.customer_aliases.items() if k != source and v != source}
+        db.save_policy(eid, p.as_dict())
+        db.audit(user, "customers_merged" if target else "customers_split", eid, f"{source} -> {target or '(own)'}")
+        return back(f"/e/{eid}?tab=customers")
 
     portal_routes.register(app, render=render, signed_in=signed_in, need=need, back=back, forbidden=Forbidden)
     return app

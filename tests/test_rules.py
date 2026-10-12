@@ -141,3 +141,143 @@ def test_pending_and_error_certificates_produce_no_rows():
                {**cert(2, "Y - Resale Certificate (CA).pdf", None, status="error"), "error": "bad pdf"}])
     assert not r.rows
     assert "extraction_error" in codes(r, 2)
+
+
+# --- validity (status, expiration, form acceptance, exemption types) -------
+
+from certapp.extraction.schema import FieldConfidence, Party  # noqa: E402
+from certapp.rules import customer_key, parse_expiration_rules  # noqa: E402
+
+
+def full(ex, **update):
+    """A complete, clean certificate: signed, dated, purchaser address and seller filled in."""
+    base = {"purchaser": Party(name=ex.purchaser.name, address="1 Main St, Reno, NV", state="NV"),
+            "seller": Party(name="Demo Seller, LLC", address=None, state=None), "signature_date": "2024-03-01"}
+    return ex.model_copy(update={**base, **update})
+
+
+def status_of(result, cid):
+    return next(c for c in result.certificates if c.cert["id"] == cid).status
+
+
+def row(result, state):
+    return next(r for r in result.rows if r.state == state)
+
+
+def test_clean_certificate_is_valid_and_carries_validity_fields():
+    ex = full(extraction([line("CA", "SR-1")], purchaser="Acme Supply Inc."), exemption_reason="Resale")
+    r = score_engagement([cert(1, "Acme - Resale Certificate (CA).pdf", ex)], Policy(), today=TODAY,
+                         seller_name="Demo Seller LLC")
+    ca = row(r, "CA")
+    assert (ca.status, ca.signed, ca.signature_date, ca.seller_match) == ("Valid", True, "2024-03-01", "Match")
+    assert ca.purchaser_address == "1 Main St, Reno, NV" and ca.expires is None
+
+
+def test_status_invalid_expired_pending():
+    c = [cert(1, "A - Resale Certificate (CA).pdf", full(extraction([line("CA", "SR-1")]), signed=False)),
+         cert(2, "B - Resale Certificate (CA).pdf", full(extraction([line("CA", "SR-2")], expires="2025-01-31"))),
+         cert(3, "C - Resale Certificate (CA).pdf",
+              full(extraction([line("CA", "SR-3")], observations=["Faint scan"]))),
+         cert(4, "D - Resale Certificate (CA).pdf", None, status="pending")]
+    r = score(c)
+    assert [status_of(r, i) for i in (1, 2, 3, 4)] == ["Invalid", "Expired", "Pending", "Pending"]
+    assert next(x for x in r.rows if x.certificate_id == 2).status_reason == "Expired 2025-01-31"
+
+
+def test_reviewing_clears_pending_and_override_sets_status():
+    ex = full(extraction([line("CA", "SR-3")], observations=["Faint scan"]))
+    reviewed = {**cert(1, "C - Resale Certificate (CA).pdf", ex), "review_status": "reviewed"}
+    assert status_of(score([reviewed]), 1) == "Valid"
+    unsigned = {**cert(2, "U - Resale Certificate (CA).pdf", full(ex, signed=False)), "status_override": "valid"}
+    r = score([unsigned])
+    assert status_of(r, 2) == "Valid" and r.rows[0].status_reason == "Set by reviewer"
+
+
+def test_seller_mismatch_is_invalid():
+    ex = full(extraction([line("CA", "SR-1")]), seller=Party(name="Someone Else Inc", address=None, state=None))
+    r = score_engagement([cert(1, "A - Resale Certificate (CA).pdf", ex)], Policy(), today=TODAY,
+                         seller_name="Demo Seller, LLC")
+    assert status_of(r, 1) == "Invalid" and "seller_mismatch" in codes(r, 1)
+    assert r.rows[0].seller_match == "Does not match"
+
+
+def test_state_expiration_rules_when_no_date_is_stated():
+    rules, bad = parse_expiration_rules("IL: 3 years\nFL calendar year\nTX: none\nZZ: 5 years\nhello")
+    assert rules == {"IL": ("years", 3), "FL": ("calendar", None), "TX": ("none", None)}
+    assert bad == ("ZZ: 5 years", "hello")
+    ex = full(extraction([line("IL", "1234-5678"), line("FL", "78-1"), line("TX", "3201"), line("OH", "9")],
+                         multistate=True), signature_date="2023-03-01")
+    p = Policy(expiration_rules="IL: 3 years\nFL: calendar year\nTX: none")
+    r = score([cert(1, "A Resale Certificate Multijurisdiction.pdf", ex)], p)
+    assert (row(r, "IL").expires, row(r, "IL").status) == ("2026-03-01", "Expired")
+    assert (row(r, "FL").expires, row(r, "FL").status) == ("2023-12-31", "Expired")
+    assert (row(r, "TX").expires, row(r, "TX").status, row(r, "TX").expiration_basis) == (None, "Valid", "TX rule: no expiration")
+    assert row(r, "OH").status == "Valid"
+    assert "expired" in row(r, "IL").flags and "expired" not in row(r, "OH").flags
+    assert status_of(r, 1) == "Expired"
+    # A rule that needs a signature date it does not have leaves the state pending.
+    r2 = score([cert(1, "A Resale Certificate Multijurisdiction.pdf", full(ex, signature_date=None))], p)
+    assert row(r2, "IL").status == "Pending" and "needs a signature date" in row(r2, "IL").status_reason
+
+
+def test_expired_certificates_can_be_kept_off_the_schedule():
+    ex = full(extraction([line("CA", "SR-1")], expires="2025-01-31"))
+    c = [cert(1, "A - Resale Certificate (CA).pdf", ex)]
+    assert states(score(c)) == ["CA"]
+    r = score(c, Policy(schedule_expired=False))
+    assert states(r) == [] and r.excluded[0].reason.startswith("Expired")
+    assert status_of(r, 1) == "Expired"
+
+
+def test_sst_form_in_non_member_state_and_uniform_rejection():
+    sst = full(extraction([line("KS", "123"), line("TN", "456"), line("CA", "SR-1")], multistate=True,
+                          family="sst_streamlined"))
+    r = score([cert(1, "A Resale Certificate Multijurisdiction.pdf", sst)])
+    assert row(r, "KS").status == "Valid" and row(r, "TN").status == "Valid"
+    assert row(r, "CA").status == "Invalid" and "form_not_accepted" in row(r, "CA").flags
+    assert "not an SST member" in row(r, "CA").status_reason
+    mtc = full(extraction([line("HI", "GE-1"), line("CO", "2")], multistate=True))
+    r = score([cert(2, "B Resale Certificate Multijurisdiction.pdf", mtc)], Policy(uniform_not_accepted="HI"))
+    assert row(r, "HI").status == "Invalid" and row(r, "CO").status == "Valid"
+
+
+def test_fein_and_home_state_settings_by_state():
+    ex = full(extraction([line("CA", "SR-1"), line("TX", "95-1", "fein"), line("GA", "95-1", "fein"),
+                          line("AL", "78-1", "home_state_number", issuing="FL")], multistate=True))
+    c = [cert(1, "A Resale Certificate Multijurisdiction.pdf", ex)]
+    assert states(score(c)) == ["AL", "CA", "GA", "TX"]
+    assert states(score(c, Policy(fein_exceptions="TX", home_state_exceptions="AL"))) == ["CA", "GA"]
+    assert states(score(c, Policy(include_fein=False, fein_exceptions="GA"))) == ["AL", "CA", "GA"]
+
+
+def test_non_resale_certificates_skip_the_registration_test():
+    mfg = full(extraction([line("OH", "", "blank")], cert_type="manufacturing", form="Manufacturing exemption"))
+    r = score([cert(1, "A - Exemption Certificate (OH).pdf", mfg.model_copy(update={"exemption_reason": "Used in production"}))])
+    assert states(r) == ["OH"] and r.rows[0].basis == "exemption_type" and status_of(r, 1) == "Valid"
+    resale = full(extraction([line("OH", "", "blank")]))
+    r = score([cert(2, "B - Resale Certificate (OH).pdf", resale)])
+    assert states(r) == [] and status_of(r, 2) == "Invalid"
+    r = score([cert(3, "C - Exemption Certificate (OH).pdf", mfg)])
+    assert "missing_exemption_reason" in codes(r, 3) and status_of(r, 3) == "Pending"
+
+
+def test_low_confidence_parts_are_flagged_for_the_reviewer():
+    fc = FieldConfidence(form="high", purchaser="low", seller="high", registration_numbers="medium",
+                         signature="low", expiration="high")
+    r = score([cert(1, "A - Resale Certificate (CA).pdf", full(extraction([line("CA", "SR-1")]), field_confidence=fc))])
+    msg = next(f.message for c in r.certificates for f in c.flags if f.code == "uncertain_fields")
+    assert "purchaser" in msg and "signature" in msg and "registration" not in msg
+
+
+def test_customer_name_variants_merge_and_reviewer_joins():
+    assert customer_key("ACME Supply, Inc.") == customer_key("Acme Supply") == "acme supply"
+    assert customer_key("The Widget Co. LLC") == "widget"
+    assert customer_key("Acme Supply LLC dba Acme Tools") == "acme supply"
+    c = [cert(1, "Acme Supply Inc - Resale Certificate (CA).pdf", full(extraction([line("CA", "SR-1")]))),
+         cert(2, "ACME Supply - Resale Certificate (TX).pdf", full(extraction([line("TX", "32")]))),
+         cert(3, "Acme West - Resale Certificate (NV).pdf", full(extraction([line("NV", "NV-1")])))]
+    r = score(c)
+    assert len({x.customer for x in r.rows}) == 2 and len(r.customers()) == 2
+    r = score(c, Policy(customer_aliases={"acme west": customer_key("Acme Supply")}))
+    assert len({x.customer for x in r.rows}) == 1
+    assert r.customers()[0]["states"] == {"CA", "TX", "NV"}

@@ -33,3 +33,20 @@ def normalize_state(token: str | None) -> str | None:
     if t in STATES:
         return t
     return _BY_NAME.get(t)
+
+# Streamlined Sales Tax members, from the Wisconsin Department of Revenue SST page and the SST
+# Governing Board's 2026 compliance notice (checked October 2026). Tennessee is an associate member.
+SST_FULL_MEMBERS = frozenset({
+    "AR", "GA", "IN", "IA", "KS", "KY", "MI", "MN", "NE", "NV", "NJ", "NC", "ND", "OH", "OK",
+    "RI", "SD", "UT", "VT", "WA", "WV", "WI", "WY",
+})
+SST_ASSOCIATE_MEMBERS = frozenset({"TN"})
+
+
+def parse_state_list(text: str | None) -> list[str]:
+    """"AL, ct; Florida" -> ["AL", "CT", "FL"]. Unrecognised entries are dropped."""
+    import re
+    found = {normalize_state(t) for t in re.split(r"[,;\n]+|\s{2,}", text or "") if t.strip()}
+    if not found - {None} and text and text.strip():   # space-separated codes: "AL CT FL"
+        found = {normalize_state(t) for t in text.split()}
+    return sorted(s for s in found if s)

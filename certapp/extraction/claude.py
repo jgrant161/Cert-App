@@ -1,4 +1,4 @@
-"""Read a certificate PDF with Claude and return a validated ``Extraction``."""
+"""Read a certificate PDF with Claude and return a validated ``Reading``."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 
 import anthropic
 
-from .schema import Extraction, json_schema
+from .schema import Reading, json_schema
 
 MODEL = "claude-opus-5-5"
 
@@ -34,8 +34,8 @@ registered or is exempt under nexus rules, set disclaims_registration.
 - Entries written outside the printed grid (a state added in the margin or \
 below the table) count as lines; mention them in observations.
 - Filenames are hints from the client and are sometimes wrong. If the document \
-is a different state's form, a single-state document labelled multijurisdiction, \
-or bundles additional certificates on later pages, say so in observations.
+is a different state's form or a single-state document labelled \
+multijurisdiction, say so in observations.
 - Entity-based exemptions (federal, state, or local government; federal \
 instrumentality; nonprofit; school) carry no resale registration; set \
 certificate_type accordingly and record the basis cited.
@@ -43,6 +43,20 @@ certificate_type accordingly and record the basis cited.
 printed title separately. Many state forms print the number in a corner or footer; \
 multistate forms such as the MTC Uniform certificate often have no number.
 - Read every page. Use null for anything not on the document. Dates as YYYY-MM-DD.
+
+One file can hold more than one thing:
+- Return one certificate entry per separate certificate. Several state forms \
+bundled in one PDF are separate certificates; a multistate form that runs onto \
+a second page is one certificate. List each certificate's page numbers in \
+source_pages (pages count from 1).
+- Pages that are not certificates (cover letters, W-9s, invoices, \
+correspondence, blank pages) go in other_pages with a short description. A \
+seller's permit or registration printout is a certificate entry with form \
+family sellers_permit, not an other page.
+- For each certificate, rate your confidence in each part separately in \
+field_confidence: high when it is printed or clearly legible, medium when you \
+had to interpret handwriting or a faint scan, low when you are guessing or the \
+area is illegible.
 """
 
 
@@ -60,7 +74,7 @@ class ClaudeExtractor:
         self.effort = effort
         self._schema = json_schema()
 
-    def extract(self, pdf_bytes: bytes, filename: str, filename_hint: dict) -> Extraction:
+    def extract(self, pdf_bytes: bytes, filename: str, filename_hint: dict) -> Reading:
         hint = json.dumps({k: v for k, v in filename_hint.items() if v}, sort_keys=True)
         with self.client.beta.messages.stream(
             model=self.model,
@@ -87,7 +101,7 @@ class ClaudeExtractor:
                     {
                         "type": "text",
                         "text": f"File name: {filename}\nFilename hint (may be wrong): {hint}\n\n"
-                                "Read this certificate and return the extraction.",
+                                "Read this file and return every certificate in it.",
                     },
                 ],
             }],
@@ -101,6 +115,6 @@ class ClaudeExtractor:
 
         text = "".join(b.text for b in message.content if b.type == "text")
         try:
-            return Extraction.model_validate_json(text)
+            return Reading.model_validate_json(text)
         except ValueError as exc:
             raise ExtractionError(f"Extraction did not match the schema: {exc}") from exc

@@ -78,11 +78,14 @@ def test_full_engagement_flow():
     header = [c.value for c in wb["Schedule"][1]]
     acme = dict(zip(header, next(row for row in sched if row[0] == "Acme Supply")))
     assert (acme["Form Number"], acme["Form Name"]) == ("CDTFA-230", "California Resale Certificate")
-    assert sorted((row[0], row[2]) for row in sched) == [
+    assert sorted((row[0], row[3]) for row in sched) == [
         ("Acme Supply", "CA"), ("Brandster", "FL"), ("Collins", "NC"), ("Delta Tools", "TX")]
-    recon = list(wb["Reconciliation"].iter_rows(min_row=2, values_only=True))
-    assert recon[-1][0] == "TOTAL (4 files)" and recon[-1][5] == 4
-    assert next(r for r in recon if r[0].startswith("Acme"))[3:5] == ("CDTFA-230", "California Resale Certificate")
+    assert {"Status", "Expires", "Date Signed", "Seller Match", "Reviewer Note", "Flags"} <= set(header)
+    rh = [c.value for c in wb["Reconciliation"][1]]
+    recon = [dict(zip(rh, row)) for row in wb["Reconciliation"].iter_rows(min_row=2, values_only=True)]
+    assert recon[-1]["Source File"] == "TOTAL (4 certificates)" and recon[-1]["Rows"] == 4
+    acme_recon = next(r for r in recon if r["Source File"].startswith("Acme"))
+    assert (acme_recon["Form Number"], acme_recon["Form Name"]) == ("CDTFA-230", "California Resale Certificate")
     assert any(row[0] == "Brandster" and row[1] == "AL" for row in
                wb["Excluded Lines"].iter_rows(min_row=2, values_only=True))
 
@@ -166,3 +169,100 @@ def test_interrupted_reads_resume():
     assert "1 certificate waiting to be read" in page and "Resume reading" in page
     client.post(f"/e/{eid}/process")
     assert "SR-111" in client.get(f"/e/{eid}").text
+
+
+def test_bundled_file_is_split_into_certificates():
+    """One PDF with two state certificates and a W-9 becomes two rows, each tied to its pages."""
+    from certapp import db
+    from certapp.extraction.schema import OtherPage, Reading
+    bundle = "Renovation Brands - Resale Certificates (Multiple).pdf"
+    reading = Reading(certificates=[
+        extraction([line("MA", "ST4-1")], purchaser="Renovation Brands").model_copy(update={"source_pages": [1]}),
+        extraction([line("CT", "CT-22")], purchaser="Renovation Brands").model_copy(update={"source_pages": [3, 4]}),
+    ], other_pages=[OtherPage(pages=[2], kind="w9", description="IRS Form W-9")])
+    fake = FakeExtractor({bundle: reading})
+    client = admin_client(TestClient(create_app(extractor=fake)))
+    eid = db.create_engagement("Bundles")
+    client.post(f"/e/{eid}/upload", files=[("files", (bundle, make_pdf("bundle"), "application/pdf"))])
+
+    certs = db.list_certificates(eid)
+    assert [(c["filename"], c["pages"]) for c in certs] == [
+        (bundle, "1"), (f"{bundle} (pages 3-4)", "3-4")]
+    child = certs[1]
+    assert child["parent_id"] == certs[0]["id"] and child["sha256"] == certs[0]["sha256"]
+    page = client.get(f"/e/{eid}/c/{certs[0]['id']}").text
+    assert "IRS Form W-9" in page and "held 2 certificates" in page
+    assert "Split out of" in client.get(f"/e/{eid}/c/{child['id']}").text
+    sched = client.get(f"/e/{eid}").text
+    assert "ST4-1" in sched and "CT-22" in sched
+
+    # Sending the same file again adds nothing; re-reading the part re-reads the whole file.
+    client.post(f"/e/{eid}/upload", files=[("files", (bundle, make_pdf("bundle"), "application/pdf"))])
+    assert len(db.list_certificates(eid)) == 2
+    fake.by_filename[bundle] = reading.certificates[0]
+    r = client.post(f"/e/{eid}/c/{child['id']}/retry", follow_redirects=False)
+    assert r.headers["location"] == f"/e/{eid}/c/{certs[0]['id']}"
+    assert [c["filename"] for c in db.list_certificates(eid)] == [bundle]
+
+
+def test_file_with_no_certificate_is_an_error():
+    from certapp import db
+    from certapp.extraction.schema import OtherPage, Reading
+    name = "Cover - Resale Certificate (CA).pdf"
+    fake = FakeExtractor({name: Reading(certificates=[], other_pages=[
+        OtherPage(pages=[1], kind="cover_letter", description="Cover letter from the customer")])})
+    client = admin_client(TestClient(create_app(extractor=fake)))
+    eid = db.create_engagement("Cover")
+    client.post(f"/e/{eid}/upload", files=[("files", (name, make_pdf("c"), "application/pdf"))])
+    c = db.list_certificates(eid)[0]
+    assert c["status"] == "error" and "Cover letter" in c["error"]
+
+
+def test_review_status_override_policy_settings_and_customer_merge():
+    from certapp import db
+    fake = FakeExtractor({**FILES, "Acme Supply Inc - Resale Certificate (TX).pdf": extraction(
+        [line("TX", "3200")], purchaser="ACME Supply, Inc.")})
+    client = admin_client(TestClient(create_app(extractor=fake)))
+    eid = db.create_engagement("Merge Co")
+    client.post(f"/e/{eid}/upload", files=[("files", (n, make_pdf(n), "application/pdf")) for n in fake.by_filename])
+    page = client.get(f"/e/{eid}?tab=customers").text
+    assert page.count("<b>Acme Supply") == 1                         # name variants joined automatically
+
+    client.post(f"/e/{eid}/customers/merge", data={"source": "Collins", "target": "Brandster"})
+    assert "<b>Collins</b>" not in client.get(f"/e/{eid}?tab=customers").text
+    client.post(f"/e/{eid}/policy", data={"include_fein": "on", "expiration_rules": "IL: 3 years",
+                                           "uniform_not_accepted": "HI, MD"})
+    pol = client.get(f"/e/{eid}?tab=policy").text
+    assert "3 years from the signature date" in pol and 'value="HI, MD"' in pol
+    from certapp.rules import Policy
+    assert Policy.from_json(db.get_engagement(eid)["policy_json"]).customer_aliases == {"collins": "brandster"}
+    client.post(f"/e/{eid}/customers/merge", data={"source": "Collins", "target": ""})
+    assert "<b>Collins</b>" in client.get(f"/e/{eid}?tab=customers").text
+
+    cid = db.list_certificates(eid)[0]["id"]
+    client.post(f"/e/{eid}/c/{cid}/review", data={"review_status": "reviewed", "status_override": "invalid",
+                                                   "note": "Wrong entity"})
+    assert db.get_certificate(cid)["status_override"] == "invalid"
+    assert "status set by a reviewer" in client.get(f"/e/{eid}/c/{cid}").text
+    assert client.post(f"/e/{eid}/c/{cid}/review", data={"review_status": "bogus"}).status_code == 400
+
+
+def test_older_database_gains_new_columns(data_dir):
+    import os
+    import sqlite3
+    import pytest
+    from certapp import db
+    if os.environ.get("DATABASE_URL"):
+        pytest.skip("SQLite upgrade path")
+    path = db.data_dir() / "certapp.db"
+    path.unlink()
+    with sqlite3.connect(path) as raw:              # the certificate table as first released
+        raw.execute("""CREATE TABLE certificate (id INTEGER PRIMARY KEY, engagement_id INTEGER NOT NULL,
+            batch_id INTEGER NOT NULL, filename TEXT NOT NULL, sha256 TEXT NOT NULL, storage_path TEXT NOT NULL,
+            filename_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', extractor TEXT,
+            extraction_json TEXT, error TEXT, duplicate_of INTEGER, review_status TEXT NOT NULL DEFAULT 'open',
+            reviewer_note TEXT, created_at TEXT NOT NULL)""")
+    db.init()
+    with sqlite3.connect(path) as raw:
+        cols = {r[1] for r in raw.execute("PRAGMA table_info(certificate)")}
+    assert {"status_override", "other_pages_json", "pages", "parent_id"} <= cols
