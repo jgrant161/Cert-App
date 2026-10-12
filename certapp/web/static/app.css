@@ -153,3 +153,7 @@ a.pill { text-decoration: none; color: inherit; }
 .conf-low { background: var(--red); color: var(--red-text); }
 .join-form { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
 .join-form select { min-width: 180px; }
+
+/* keep wide tables and forms inside their card on narrow screens */
+.card { overflow-x: auto; }
+.split > * { min-width: 0; }
