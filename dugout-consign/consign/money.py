@@ -56,7 +56,9 @@ DEFAULTS = {
     "opening_consignment_cents": 0,  # the consignment bank account balance on the day you started using this
     "shop_account_name": "Shop operating account",
     "consignment_account_name": "Consignment trust account",
-    "label_format": "thermal",       # thermal (2.25 x 1.25 in) | avery5160 (30 per sheet)
+    "label_format": "thermal",
+    "shop_address": {"addressLine1": "211 Midway St Ste R", "city": "Spring", "stateOrProvince": "TX",
+                     "postalCode": "77373"},       # thermal (2.25 x 1.25 in) | avery5160 (30 per sheet)
     "agreement": (
         "1. The Dug Out sells your items in store and online (eBay, Whatnot, TCGplayer) at the agreed price.\n"
         "2. Commission is taken from each sale at the rate shown on your account. Marketplace and card "

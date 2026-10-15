@@ -9,7 +9,8 @@
       {% if i.min_cents %} <span class="muted small">floor {{ i.min_cents | money }}</span>{% endif %}
       {% if i.expires_at and i.status in ('received', 'listed') %} · <span class="small {{ 'error' if i.expires_at < today() }}">period ends {{ i.expires_at }}</span>{% endif %}
       {% if i.location %} · <span class="small">{{ i.location }}</span>{% endif %}
-      {% if i.square_item_id %} · <span class="small muted">in Square</span>{% endif %}</p></div>
+      {% if i.square_item_id %} · <span class="small muted">in Square</span>{% endif %}
+      {% if ebay_url(i) %} · <a class="small" href="{{ ebay_url(i) }}" target="_blank" rel="noopener">on eBay</a>{% endif %}</p></div>
   <div class="row">
     <a class="button ghost" href="/labels?ids={{ i.id }}">Print label</a>
     {% if i.status == "submitted" %}
@@ -20,6 +21,8 @@
     {% endif %}
     {% if i.status in ("received", "listed") %}<form method="post" action="/items/{{ i.id }}/return" onsubmit="return confirm('Mark this item as returned to the consignor?')"><button class="ghost">Returned to consignor</button></form>{% endif %}
     {% if i.status == "returned" %}<form method="post" action="/items/{{ i.id }}/relist"><button class="ghost">Back in the shop</button></form>{% endif %}
+    {% if ebay_on and i.status == "listed" %}<form method="post" action="/items/{{ i.id }}/ebay"><button class="ghost" name="action" value="push">{{ 'Update on eBay' if i.ebay_listing_id else 'List on eBay' }}</button></form>
+      {% if i.ebay_listing_id %}<form method="post" action="/items/{{ i.id }}/ebay" onsubmit="return confirm('End the eBay listing?')"><button class="ghost" name="action" value="end">End on eBay</button></form>{% endif %}{% endif %}
     {% if square_on and i.status in ("received", "listed") %}<form method="post" action="/items/{{ i.id }}/square"><button class="ghost">{{ 'Update in Square' if i.square_item_id else 'Send to Square' }}</button></form>{% endif %}
   </div>
 </div>

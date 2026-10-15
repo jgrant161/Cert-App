@@ -7,6 +7,7 @@
   <div class="card stat"><div class="k">For sale</div><div class="value">{{ listed }}</div><div class="small muted">{{ not_pushed }} not yet in Square</div></div>
   <div class="card stat"><div class="k">Last sales sync</div><div class="value" style="font-size:18px">{{ last_sync[:16].replace('T', ' ') if last_sync else 'Never' }}</div></div>
 </div>
+{% if setting_raw("square_sync_error") %}<div class="error">Last automatic sync failed: {{ setting_raw("square_sync_error") }}</div>{% endif %}
 <div class="card">
   <div class="row">
     <form method="post" action="/square/push"><input type="hidden" name="only_new" value="1"><button>Send new items to Square</button></form>

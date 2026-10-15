@@ -82,6 +82,9 @@ CREATE TABLE IF NOT EXISTS item (
     square_item_id TEXT,
     square_variation_id TEXT,
     square_synced_at TEXT,
+    ebay_offer_id TEXT,
+    ebay_listing_id TEXT,
+    ebay_synced_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -247,6 +250,12 @@ def connect():
         raw.close()
 
 
+# Columns added after the first release, so older databases are upgraded in place.
+_ADDED_COLUMNS = {
+    "item": [("ebay_offer_id", "TEXT"), ("ebay_listing_id", "TEXT"), ("ebay_synced_at", "TEXT")],
+}
+
+
 def init() -> None:
     with connect() as conn:
         if conn.postgres:
@@ -254,6 +263,15 @@ def init() -> None:
         else:
             conn.raw.execute("PRAGMA journal_mode = WAL")
             conn.raw.executescript(SCHEMA.format(pk="INTEGER PRIMARY KEY"))
+        for table, columns in _ADDED_COLUMNS.items():
+            if conn.postgres:
+                have = {r["column_name"] for r in conn.all(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = ?", (table,))}
+            else:
+                have = {r["name"] for r in conn.all(f"PRAGMA table_info({table})")}
+            for name, decl in columns:
+                if name not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 def ping() -> bool:
@@ -390,7 +408,8 @@ ITEM_FIELDS = ("consignor_id", "title", "category", "sport", "year", "brand_set"
                "grader", "grade", "cert_number", "condition", "description", "tcgplayer_id", "quantity",
                "asking_cents", "min_cents", "price_cents", "commission_pct", "status", "location",
                "submitted_by", "received_at", "listed_at", "expires_at", "sold_at", "closed_at",
-               "square_item_id", "square_variation_id", "square_synced_at")
+               "square_item_id", "square_variation_id", "square_synced_at",
+               "ebay_offer_id", "ebay_listing_id", "ebay_synced_at")
 
 
 def create_item(**fields) -> int:

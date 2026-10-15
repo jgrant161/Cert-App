@@ -18,7 +18,7 @@
 <div class="card">
   <form method="post" action="/items/bulk">
   <div class="head"><h2>Items ({{ items|length }})</h2>
-    <div class="row"><select name="action" aria-label="With selected items"><option value="labels">Print labels</option><option value="ebay">eBay upload file</option><option value="whatnot">Whatnot upload file</option><option value="tcgplayer">TCGplayer upload file</option><option value="square_push">Send to Square</option></select><button class="small">Go</button></div></div>
+    <div class="row"><select name="action" aria-label="With selected items"><option value="labels">Print labels</option><option value="ebay">eBay upload file</option><option value="whatnot">Whatnot upload file</option><option value="tcgplayer">TCGplayer upload file</option><option value="ebay_push">List on eBay (direct)</option><option value="square_push">Send to Square</option></select><button class="small">Go</button></div></div>
   {% set rows = items %}{% set show_consignor = false %}{% set select = true %}{% set href = "/items/" %}
   {% include "_items_table.html" %}
   </form>

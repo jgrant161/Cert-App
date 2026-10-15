@@ -15,8 +15,10 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("CONSIGN_DATA_DIR", str(tmp_path / "data"))
     for var in ("CONSIGN_ENV", "CONSIGN_SECRET_KEY", "CONSIGN_FILES_DIR", "CONSIGN_BASE_URL", "DATABASE_URL",
                 "SQUARE_ACCESS_TOKEN", "SQUARE_LOCATION_ID", "SQUARE_ENVIRONMENT",
-                "SQUARE_WEBHOOK_SIGNATURE_KEY", "SQUARE_WEBHOOK_URL"):
+                "SQUARE_WEBHOOK_SIGNATURE_KEY", "SQUARE_WEBHOOK_URL", "EBAY_CLIENT_ID", "EBAY_CLIENT_SECRET",
+                "EBAY_RUNAME", "EBAY_ENVIRONMENT"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("CONSIGN_SYNC_MINUTES", "0")
     monkeypatch.setitem(auth._SCRYPT, "n", 2 ** 10)   # fast hashing in tests only
     if TEST_PG:
         monkeypatch.setenv("DATABASE_URL", TEST_PG)
@@ -48,8 +50,8 @@ def owner():
 def make_client():
     from consign.web.app import create_app
 
-    def make(square_factory=None):
-        return TestClient(create_app(square_factory=square_factory))
+    def make(square_factory=None, ebay_factory=None):
+        return TestClient(create_app(square_factory=square_factory, ebay_factory=ebay_factory))
     return make
 
 

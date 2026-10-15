@@ -24,6 +24,7 @@
           <a href="/payouts" class="{{ 'on' if here.startswith('/payouts') }}">Payouts</a>
           <a href="/money" class="{{ 'on' if here.startswith('/money') }}">Accounts</a>
           <a href="/square" class="{{ 'on' if here.startswith('/square') }}">Square</a>
+          <a href="/ebay" class="{{ 'on' if here.startswith('/ebay') }}">eBay</a>
           {% if can(user, "settings") %}<a href="/settings" class="{{ 'on' if here.startswith('/settings') }}">Settings</a>{% endif %}
         {% else %}
           <a href="/me" class="{{ 'on' if here == '/me' }}">My items</a>

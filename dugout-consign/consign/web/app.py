@@ -12,6 +12,12 @@ import io
 import json
 import os
 import secrets
+import shutil
+import sqlite3
+import tempfile
+import threading
+import time
+import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit
@@ -24,7 +30,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import auth, barcode, db, ledger, listings, money, ops, square
+from .. import auth, barcode, db, ebay, ledger, listings, money, ops, square
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
@@ -35,6 +41,8 @@ templates.env.globals.update(CHANNELS=money.CHANNELS, PAYOUT_METHODS=money.PAYOU
                              can=auth.can, is_staff=auth.is_staff, setting=money.setting)
 templates.env.globals["barcode"] = lambda text: Markup(barcode.svg(text))
 templates.env.globals["today"] = db.today
+templates.env.globals["setting_raw"] = db.get_setting
+templates.env.globals["ebay_url"] = ebay.listing_url
 
 STATUS_LABELS = {"submitted": "Submitted", "received": "In shop, not listed", "listed": "For sale",
                  "sold": "Sold", "returned": "Returned", "declined": "Declined"}
@@ -78,11 +86,12 @@ def photo_kind(head: bytes) -> str | None:
     return None
 
 
-def create_app(square_factory=None) -> FastAPI:
+def create_app(square_factory=None, ebay_factory=None, auto_sync: bool | None = None) -> FastAPI:
     db.init()
     app = FastAPI(title="Dug Out Consignment", docs_url=None, redoc_url=None, openapi_url=None)
     # A function returning a Square client, or None when Square is not connected.
     app.state.square = square_factory or (lambda: square.Square() if square.configured() else None)
+    app.state.ebay = ebay_factory or (lambda: ebay.Ebay() if ebay.connected() else None)
     throttle = auth.LoginThrottle()
 
     @app.middleware("http")
@@ -134,7 +143,8 @@ def create_app(square_factory=None) -> FastAPI:
         user = auth.current_user(request.session) if "uid" in request.session else None
         flash = request.session.pop("flash", None)
         error = request.session.pop("error", None)
-        ctx = {"user": user, "flash": flash, "error": error, "square_on": square.configured(), **ctx}
+        ctx = {"user": user, "flash": flash, "error": error, "square_on": square.configured(),
+               "ebay_on": ebay.connected(), **ctx}
         return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 
     def signed_in(request: Request) -> dict:
@@ -240,6 +250,9 @@ def create_app(square_factory=None) -> FastAPI:
 
     def sq():
         return app.state.square()
+
+    def eb():
+        return app.state.ebay()
 
     def parse_ids(raw: str | list | None) -> list[int]:
         if isinstance(raw, list):
@@ -607,10 +620,7 @@ def create_app(square_factory=None) -> FastAPI:
             return back(f"/items/{iid}", error=str(e), request=request)
         db.update_item(iid, **fields)
         db.audit(user, "item_updated", item_or_404(iid)["consignor_id"], iid)
-        item = item_or_404(iid)
-        warning = None
-        if item["square_item_id"]:
-            warning = ops._square(sq(), square.push_item, item)
+        warning = ops._resync(item_or_404(iid), sq(), eb())
         return back(f"/items/{iid}", "Saved.", warning, request)
 
     @app.post("/items/{iid}/photos")
@@ -650,7 +660,7 @@ def create_app(square_factory=None) -> FastAPI:
             if mode == "propose":
                 ops.propose_price(item, "shop", c, note.strip() or None, user)
                 return None
-            return ops.set_price(item, c, user, sq())
+            return ops.set_price(item, c, user, sq(), eb())
         msg = "Price sent to the consignor to approve." if mode == "propose" else "Price saved."
         return item_action(request, iid, go, msg)
 
@@ -667,7 +677,7 @@ def create_app(square_factory=None) -> FastAPI:
                 return None
             if p["proposed_by"] != "consignor":
                 raise ops.OpError("The consignor answers the shop's proposals.")
-            return ops.answer_proposal(item, p, answer == "accept", user, sq())
+            return ops.answer_proposal(item, p, answer == "accept", user, sq(), eb())
         return item_action(request, iid, go, "Done.")
 
     @app.post("/items/{iid}/sale")
@@ -675,14 +685,14 @@ def create_app(square_factory=None) -> FastAPI:
                   sold_at: str = Form(""), external_ref: str = Form(""), below_floor: str = Form("")):
         def go(item, user):
             _, warning = ops.record_sale(item, channel, cents(price, "Sale price", required=True), cents(fees, "Fees"),
-                                         _date(sold_at), user, external_ref.strip() or None, sq=sq(),
+                                         _date(sold_at), user, external_ref.strip() or None, sq=sq(), eb=eb(),
                                          allow_below_floor=bool(below_floor))
             return warning
         return item_action(request, iid, go, "Sale recorded.")
 
     @app.post("/items/{iid}/return")
     def item_return(request: Request, iid: int):
-        return item_action(request, iid, lambda i, u: ops.close_item(i, "returned", u, sq()),
+        return item_action(request, iid, lambda i, u: ops.close_item(i, "returned", u, sq(), eb()),
                            "Marked as returned to the consignor.")
 
     @app.post("/items/{iid}/decline")
@@ -743,6 +753,18 @@ def create_app(square_factory=None) -> FastAPI:
                 except Exception as e:  # noqa: BLE001
                     failed.append(f"{item['sku']}: {e}")
             return back("/items", f"{done} sent to Square.", "; ".join(failed) or None, request)
+        if action == "ebay_push":
+            client = eb()
+            if client is None:
+                return back("/items", error="eBay is not connected. See the eBay page.", request=request)
+            done, failed = 0, []
+            for item in db.list_items(ids=ids):
+                try:
+                    ebay.push(client, item)
+                    done += 1
+                except Exception as e:  # noqa: BLE001
+                    failed.append(f"{item['sku']}: {e}")
+            return back("/items", f"{done} listed on eBay.", "; ".join(failed) or None, request)
         return back("/items")
 
     # --- labels --------------------------------------------------------------
@@ -843,8 +865,9 @@ def create_app(square_factory=None) -> FastAPI:
 
         def record(item, price_cents, sold_at, order_id):
             ops.record_sale(item, "instore", price_cents, None, sold_at, user, order_id, square_order_id=order_id,
-                            allow_below_floor=True)
-        return square.sync_sales(client, record)
+                            eb=eb(), allow_below_floor=True)
+        with sync_lock:
+            return square.sync_sales(client, record)
 
     @app.post("/square/sync")
     def square_sync(request: Request):
@@ -890,6 +913,186 @@ def create_app(square_factory=None) -> FastAPI:
             except Exception:   # noqa: BLE001 - Square retries; the next sync picks it up
                 pass
         return {"ok": True}
+
+    # --- eBay ------------------------------------------------------------------
+
+    sync_lock = threading.Lock()     # one Square or eBay sync at a time, whoever starts it
+
+    @app.get("/ebay")
+    def ebay_page(request: Request):
+        user = staff(request)
+        ctx = {"configured": ebay.configured(), "connected": ebay.connected(), "sandbox": ebay.sandbox(),
+               "connected_at": db.get_setting("ebay_connected_at"), "expires": db.get_setting("ebay_refresh_expires"),
+               "last_sync": db.get_setting("ebay_last_sync"), "policies": None, "policy_error": None,
+               "chosen": {k: db.get_setting(f"ebay_{k}_policy") for k in ("fulfillment", "payment", "return")},
+               "address": money.setting("shop_address"), "callback": f"{base_url(request)}/ebay/callback",
+               "privacy": f"{base_url(request)}/privacy", "base_ok": os.environ.get("CONSIGN_BASE_URL", "").startswith("https://")}
+        if ctx["connected"]:
+            listed = db.list_items(status="listed")
+            ctx["listed"], ctx["on_ebay"] = len(listed), sum(1 for i in listed if i["ebay_listing_id"])
+            try:
+                ctx["policies"] = eb().policies()
+            except Exception as e:   # noqa: BLE001
+                ctx["policy_error"] = str(e)
+        return render(request, "ebay.html", ctx)
+
+    @app.get("/ebay/connect")
+    def ebay_connect(request: Request):
+        staff(request, "settings")
+        if not ebay.configured():
+            return back("/ebay", error="Add the eBay keys to the server settings first (see the steps below).",
+                        request=request)
+        state = secrets.token_urlsafe(24)
+        request.session["ebay_state"] = state
+        return RedirectResponse(ebay.consent_url(state), status_code=303)
+
+    @app.get("/ebay/callback")
+    def ebay_callback(request: Request, code: str = "", state: str = ""):
+        user = staff(request, "settings")
+        expected = request.session.pop("ebay_state", None)
+        if not code or not expected or not secrets.compare_digest(state, expected):
+            return back("/ebay", error="eBay did not finish connecting (you may have clicked Decline). Try again.",
+                        request=request)
+        try:
+            ebay.exchange_code(code)
+        except ebay.EbayError as e:
+            return back("/ebay", error=str(e), request=request)
+        db.audit(user, "ebay_connected")
+        return back("/ebay", "eBay is connected. Now choose your policies below.", request=request)
+
+    @app.post("/ebay/disconnect")
+    def ebay_disconnect(request: Request):
+        user = staff(request, "settings")
+        ebay.disconnect()
+        db.audit(user, "ebay_disconnected")
+        return back("/ebay", "eBay is disconnected. Listings already on eBay stay up.", request=request)
+
+    @app.post("/ebay/setup")
+    async def ebay_setup(request: Request):
+        user = staff(request, "settings")
+        form = await request.form()
+        address = {k: (form.get(k) or "").strip() for k in ("addressLine1", "city", "stateOrProvince", "postalCode")}
+        if not all(address.values()):
+            return back("/ebay", error="Fill in the whole shop address.", request=request)
+        for kind in ("fulfillment", "payment", "return"):
+            db.set_setting(f"ebay_{kind}_policy", form.get(kind) or None)
+        db.set_setting("shop_address", address)
+        try:
+            eb().ensure_location(address)
+        except Exception as e:   # noqa: BLE001
+            return back("/ebay", error=f"Policies saved, but eBay did not accept the shop address: {e}", request=request)
+        db.audit(user, "ebay_setup")
+        return back("/ebay", "Saved. You can list items on eBay now.", request=request)
+
+    def run_ebay_sync(user: dict | None) -> dict:
+        client = eb()
+        if client is None:
+            raise ops.OpError("eBay is not connected.")
+
+        def record(item, price_cents, fees_cents, sold_at, order_id):
+            ops.record_sale(item, "ebay", price_cents, fees_cents, sold_at, user, order_id, sq=sq(),
+                            allow_below_floor=True)
+        with sync_lock:
+            return ebay.sync_orders(client, record)
+
+    @app.post("/ebay/sync")
+    def ebay_sync(request: Request):
+        user = staff(request)
+        try:
+            result = run_ebay_sync(user)
+        except Exception as e:   # noqa: BLE001
+            return back("/ebay", error=f"Sync failed: {e}", request=request)
+        db.audit(user, "ebay_sync", detail=f"{len(result['recorded'])} sales")
+        return back("/ebay", f"{len(result['recorded'])} eBay sale(s) recorded.",
+                    "; ".join(result["skipped"]) or None, request)
+
+    @app.post("/ebay/push")
+    def ebay_push_all(request: Request):
+        user = staff(request)
+        client = eb()
+        if client is None:
+            return back("/ebay", error="eBay is not connected.", request=request)
+        done, failed = 0, []
+        for item in db.list_items(status="listed"):
+            if item["ebay_listing_id"]:
+                continue
+            try:
+                ebay.push(client, item)
+                done += 1
+            except Exception as e:   # noqa: BLE001
+                failed.append(f"{item['sku']}: {e}")
+        db.audit(user, "ebay_push_all", detail=f"{done} items")
+        return back("/ebay", f"{done} item(s) listed on eBay.", "; ".join(failed[:10]) or None, request)
+
+    @app.post("/items/{iid}/ebay")
+    def item_ebay(request: Request, iid: int, action: str = Form("push")):
+        def go(item, user):
+            client = eb()
+            if client is None:
+                raise ops.OpError("eBay is not connected. See the eBay page.")
+            try:
+                if action == "end":
+                    ebay.end(client, item)
+                else:
+                    ebay.push(client, item)
+            except ebay.EbayError as e:
+                raise ops.OpError(str(e)) from None
+            db.audit(user, "ebay_ended" if action == "end" else "ebay_listed", item["consignor_id"], item["id"])
+        return item_action(request, iid, go, "eBay listing ended." if action == "end" else "Listed on eBay.")
+
+    # --- automatic syncing ------------------------------------------------------
+
+    minutes = float(os.environ.get("CONSIGN_SYNC_MINUTES", "15"))
+    if auto_sync is None:
+        auto_sync = minutes > 0
+
+    def sync_forever():
+        while True:
+            time.sleep(max(minutes, 1) * 60)
+            for name, run, ready in (("square", run_square_sync, sq), ("ebay", run_ebay_sync, eb)):
+                try:
+                    if ready() is not None:
+                        run(None)
+                        db.set_setting(f"{name}_sync_error", None)
+                except Exception as e:   # noqa: BLE001 - shown on the Square / eBay page; tried again next time
+                    db.set_setting(f"{name}_sync_error", f"{db.now()}: {e}"[:500])
+
+    if auto_sync:
+        @app.on_event("startup")
+        def start_sync():
+            threading.Thread(target=sync_forever, name="channel-sync", daemon=True).start()
+
+    # --- backup -----------------------------------------------------------------
+
+    @app.get("/settings/backup")
+    def backup(request: Request):
+        user = staff(request, "settings")
+        if db.is_postgres():
+            return back("/settings", error="This server keeps its data in PostgreSQL; use your host's database "
+                        "backups, and download photos from the server disk.", request=request)
+        tmp = Path(tempfile.mkdtemp())
+        snap = tmp / "consign.db"
+        src = sqlite3.connect(db.data_dir() / "consign.db")
+        dst = sqlite3.connect(snap)
+        with dst:
+            src.backup(dst)       # a consistent copy even while the portal is in use
+        src.close()
+        dst.close()
+        out = tmp / f"dugout-consign-backup-{db.today()}.zip"
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(snap, "consign.db")
+            photos = db.files_dir() / "photos"
+            if photos.exists():
+                for f in photos.iterdir():
+                    z.write(f, f"files/photos/{f.name}")
+        db.audit(user, "backup_downloaded")
+        from starlette.background import BackgroundTask
+        return FileResponse(out, filename=out.name, media_type="application/zip",
+                            background=BackgroundTask(shutil.rmtree, tmp, True))
+
+    @app.get("/privacy")
+    def privacy(request: Request):
+        return render(request, "privacy.html", {})
 
     # --- exports -------------------------------------------------------------
 
@@ -1056,7 +1259,7 @@ def create_app(square_factory=None) -> FastAPI:
                 if p["proposed_by"] != "shop":
                     raise ops.OpError("The shop answers your proposals.")
                 # A Square hiccup is the shop's to fix; it shows on their item page, not the consignor's.
-                ops.answer_proposal(item, p, answer == "accept", user, sq())
+                ops.answer_proposal(item, p, answer == "accept", user, sq(), eb())
         except ops.OpError as e:
             return back(f"/me/items/{iid}", error=str(e), request=request)
         return back(f"/me/items/{iid}", "Thanks, the shop has your answer.", request=request)

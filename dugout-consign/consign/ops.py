@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from . import db, money, square
+from . import db, ebay, money, square
 
 
 class OpError(ValueError):
@@ -28,6 +28,27 @@ def _square(sq, fn, *args) -> str | None:
     except Exception as e:     # noqa: BLE001  - any Square failure becomes a warning
         return f"Saved here, but Square was not updated: {e}"
     return None
+
+
+def _ebay(eb, fn, *args) -> str | None:
+    if eb is None:
+        return None
+    try:
+        fn(eb, *args)
+    except Exception as e:     # noqa: BLE001  - any eBay failure becomes a warning
+        return f"Saved here, but eBay was not updated: {e}"
+    return None
+
+
+def _join(*warnings) -> str | None:
+    return " ".join(w for w in warnings if w) or None
+
+
+def _resync(item: dict, sq, eb) -> str | None:
+    """Send a changed price or quantity to wherever the item is already listed."""
+    w1 = _square(sq, square.push_item, item) if item["square_item_id"] else None
+    w2 = _ebay(eb, ebay.push, item) if item["ebay_listing_id"] and item["status"] == "listed" else None
+    return _join(w1, w2)
 
 
 def receive(item: dict, user: dict | None, location: str | None = None) -> None:
@@ -51,15 +72,12 @@ def list_item(item: dict, user: dict | None, sq=None) -> str | None:
     return _square(sq, square.push_item, db.get_item(item["id"]))
 
 
-def set_price(item: dict, cents: int, user: dict | None, sq=None) -> str | None:
+def set_price(item: dict, cents: int, user: dict | None, sq=None, eb=None) -> str | None:
     if cents <= 0:
         raise OpError("The price must be more than $0.")
     db.update_item(item["id"], price_cents=cents)
     db.audit(user, "price_set", item["consignor_id"], item["id"], money.fmt(cents))
-    fresh = db.get_item(item["id"])
-    if fresh["square_item_id"]:
-        return _square(sq, square.push_item, fresh)
-    return None
+    return _resync(db.get_item(item["id"]), sq, eb)
 
 
 def propose_price(item: dict, by: str, cents: int, note: str | None, user: dict | None) -> int:
@@ -72,7 +90,7 @@ def propose_price(item: dict, by: str, cents: int, note: str | None, user: dict 
     return pid
 
 
-def answer_proposal(item: dict, proposal: dict, accept: bool, user: dict | None, sq=None) -> str | None:
+def answer_proposal(item: dict, proposal: dict, accept: bool, user: dict | None, sq=None, eb=None) -> str | None:
     if proposal["status"] != "pending":
         raise OpError("That price proposal has already been answered.")
     db.decide_proposal(proposal["id"], "accepted" if accept else "declined")
@@ -83,15 +101,13 @@ def answer_proposal(item: dict, proposal: dict, accept: bool, user: dict | None,
         if proposal["proposed_by"] == "shop" and item["min_cents"] and proposal["price_cents"] < item["min_cents"]:
             fields["min_cents"] = proposal["price_cents"]     # the consignor agreed to go below their floor
         db.update_item(item["id"], **fields)
-        fresh = db.get_item(item["id"])
-        if fresh["square_item_id"]:
-            return _square(sq, square.push_item, fresh)
+        return _resync(db.get_item(item["id"]), sq, eb)
     return None
 
 
 def record_sale(item: dict, channel: str, price_cents: int, fees_cents: int | None, sold_at: str,
                 user: dict | None, external_ref: str | None = None, square_order_id: str | None = None,
-                sq=None, allow_below_floor: bool = False) -> tuple[int, str | None]:
+                sq=None, eb=None, allow_below_floor: bool = False) -> tuple[int, str | None]:
     """Record one unit sold. Returns (sale id, warning or None)."""
     if channel not in money.CHANNELS:
         raise OpError("Choose where the item sold.")
@@ -118,14 +134,16 @@ def record_sale(item: dict, channel: str, price_cents: int, fees_cents: int | No
     db.update_item(item["id"], **fields)
     db.audit(user, "sale_recorded", item["consignor_id"], item["id"],
              f"{money.CHANNELS[channel]} {money.fmt(price_cents)}; consignor {money.fmt(parts['consignor_cents'])}")
-    warning = None
+    fresh = db.get_item(item["id"])
+    warning = warning_ebay = None
     # A Square register sale already took the stock down in Square; anything else must.
-    if channel != "instore" or not square_order_id:
-        fresh = db.get_item(item["id"])
-        if fresh["square_variation_id"]:
-            warning = _square(sq, lambda c, v, q: c.set_stock(v, q), fresh["square_variation_id"],
-                              left if fresh["status"] == "listed" else 0)
-    return sid, warning
+    if (channel != "instore" or not square_order_id) and fresh["square_variation_id"]:
+        warning = _square(sq, lambda c, v, q: c.set_stock(v, q), fresh["square_variation_id"],
+                          left if fresh["status"] == "listed" else 0)
+    # Likewise eBay counts its own sales; a sale anywhere else ends or shrinks the eBay listing.
+    if channel != "ebay" and fresh["ebay_listing_id"]:
+        warning_ebay = _ebay(eb, ebay.end if left == 0 else ebay.push, fresh)
+    return sid, _join(warning, warning_ebay)
 
 
 def void_sale(sale: dict, reason: str, user: dict | None, sq=None) -> str | None:
@@ -144,7 +162,7 @@ def void_sale(sale: dict, reason: str, user: dict | None, sq=None) -> str | None
     return None
 
 
-def close_item(item: dict, status: str, user: dict | None, sq=None) -> str | None:
+def close_item(item: dict, status: str, user: dict | None, sq=None, eb=None) -> str | None:
     """Return an item to its consignor, or decline a submission."""
     if status == "returned" and item["status"] not in ("received", "listed"):
         raise OpError("Only items in the shop can be returned.")
@@ -152,7 +170,7 @@ def close_item(item: dict, status: str, user: dict | None, sq=None) -> str | Non
         raise OpError("Only submissions can be declined.")
     db.update_item(item["id"], status=status, closed_at=db.today())
     db.audit(user, f"item_{status}", item["consignor_id"], item["id"])
-    return _square(sq, square.zero_stock, item)
+    return _join(_square(sq, square.zero_stock, item), _ebay(eb, ebay.end, item) if item["ebay_listing_id"] else None)
 
 
 def relist(item: dict, user: dict | None) -> None:
