@@ -1,0 +1,19 @@
+{# rows: items; show_consignor: bool; select: bool; href: url prefix #}
+<div class="tablewrap"><table>
+  <thead><tr>{% if select %}<th><input type="checkbox" aria-label="Select all" onclick="for (const b of document.querySelectorAll('input[name=ids]')) b.checked = this.checked"></th>{% endif %}
+    <th class="hide-sm"></th><th class="hide-sm">SKU</th><th>Item</th>{% if show_consignor %}<th>Consignor</th>{% endif %}<th>Status</th><th class="num">Price</th><th>Expires</th></tr></thead>
+  <tbody>
+  {% for i in rows %}
+  <tr>
+    {% if select %}<td><input type="checkbox" name="ids" value="{{ i.id }}" aria-label="Select {{ i.sku }}"></td>{% endif %}
+    <td class="hide-sm">{% if i.cover %}<img class="thumb" src="/p/{{ i.cover }}" alt="" loading="lazy">{% else %}<span class="thumb"></span>{% endif %}</td>
+    <td class="mono nowrap hide-sm"><a href="{{ href }}{{ i.id }}">{{ i.sku }}</a></td>
+    <td><a href="{{ href }}{{ i.id }}">{{ i.title }}</a>{% if i.grader %} <span class="muted small">{{ i.grader }} {{ i.grade }}</span>{% endif %}{% if i.quantity > 1 %} <span class="muted small">× {{ i.quantity }}</span>{% endif %}</td>
+    {% if show_consignor %}<td class="small">{{ i.consignor_name }} <span class="muted">{{ i.consignor_code }}</span></td>{% endif %}
+    <td><span class="pill {{ i.status }}">{{ STATUS_LABELS[i.status] }}</span></td>
+    <td class="num">{{ i.price_cents | money('—') }}</td>
+    <td class="small nowrap {{ 'error' if i.expires_at and i.expires_at < today() and i.status in ('received','listed') }}" style="padding:7px 8px">{{ i.expires_at if i.status in ('received', 'listed') and i.expires_at else '' }}</td>
+  </tr>
+  {% else %}<tr><td colspan="8" class="muted">Nothing here yet.</td></tr>{% endfor %}
+  </tbody>
+</table></div>

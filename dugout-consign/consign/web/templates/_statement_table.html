@@ -1,0 +1,10 @@
+<div class="tablewrap"><table>
+  <thead><tr><th>Date</th><th>What</th><th class="num">Sale</th><th class="num">Fees</th><th class="num">Commission</th><th class="num">Amount</th><th class="num">Balance</th></tr></thead>
+  <tbody>{% for r in rows %}
+  <tr><td class="nowrap">{{ r.date }}</td>
+    <td>{% if r.kind == "sale" %}Sold: {{ r.description }} <span class="muted small">{{ CHANNELS[r.channel] }} · {{ r.sku }}</span>{% elif r.kind == "payout" %}<b>{{ r.description }}</b>{% else %}{{ r.description }}{% endif %}</td>
+    <td class="num">{{ r.price | money }}</td><td class="num">{{ r.fees | money }}</td>
+    <td class="num">{% if r.commission is not none %}{{ r.commission | money }} <span class="muted small">{{ '%g' % r.pct }}%</span>{% endif %}</td>
+    <td class="num">{{ r.amount | money }}</td><td class="num">{{ r.balance | money }}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">No sales or payouts yet.</td></tr>{% endfor %}</tbody>
+</table></div>

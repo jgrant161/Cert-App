@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block title %}Your account{% endblock %}
+{% block body %}
+<h1>Your account</h1>
+<p class="muted">{{ user.email }} · {{ ROLES[user.role] }}</p>
+<div class="grid g2">
+  {% if consignor %}
+  <div class="card">
+    <h2>Contact and payout details</h2>
+    <form method="post" action="/account/details">
+      <label>Phone<input name="phone" value="{{ consignor.phone or '' }}"></label>
+      <label>Mailing address<textarea name="address" style="min-height:60px">{{ consignor.address or '' }}</textarea></label>
+      <label>How you'd like to be paid
+        <select name="payout_method">{% for k, v in PAYOUT_METHODS.items() %}<option value="{{ k }}" {{ 'selected' if consignor.payout_method == k }}>{{ v }}</option>{% endfor %}</select></label>
+      <label>Payout details (Zelle phone, PayPal email, name on the check...)<input name="payout_details" value="{{ consignor.payout_details or '' }}"></label>
+      <button>Save</button>
+    </form>
+  </div>
+  {% endif %}
+  <div class="card">
+    <h2>Change password</h2>
+    <form method="post" action="/account/password">
+      <label>Current password<input name="current" type="password" required autocomplete="current-password"></label>
+      <label>New password<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
+      <label>New password again<input name="confirm" type="password" required autocomplete="new-password"></label>
+      <button>Change password</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

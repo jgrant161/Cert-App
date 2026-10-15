@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}Inventory{% endblock %}
+{% block body %}
+<div class="head"><h1>Inventory</h1><div class="row"><a class="button" href="/items/new">Check in an item</a>
+  <a class="button ghost" href="/exports/inventory.csv?{{ 'status=' ~ status if status else 'status=on_hand' }}">Download (CSV)</a></div></div>
+<form class="card row" method="get">
+  <input name="q" value="{{ q }}" placeholder="Search title, SKU, cert, consignor" style="flex:1;min-width:200px">
+  <select name="status" aria-label="Status"><option value="">Any status</option>
+    {% for k, v in [("on_hand", "In the shop"), ("listed", "For sale"), ("received", "Not listed"), ("submitted", "Submitted"), ("expired", "Past consignment period"), ("sold", "Sold"), ("returned", "Returned"), ("declined", "Declined")] %}
+    <option value="{{ k }}" {{ 'selected' if status == k }}>{{ v }}</option>{% endfor %}</select>
+  <select name="consignor" aria-label="Consignor"><option value="">Any consignor</option>{% for c in consignors %}<option value="{{ c.id }}" {{ 'selected' if consignor == c.id }}>{{ c.name }}</option>{% endfor %}</select>
+  <button>Filter</button>
+</form>
+<form method="post" action="/items/bulk" class="card">
+  <div class="head"><span class="muted small">{{ rows|length }} item(s). Tick items, then choose what to do.</span>
+    <div class="row"><select name="action" aria-label="With selected items">
+      <option value="labels">Print labels</option>
+      <option value="ebay">eBay upload file</option><option value="whatnot">Whatnot upload file</option><option value="tcgplayer">TCGplayer upload file</option>
+      <option value="square_push">Send to Square</option><option value="square_csv">Square import file</option></select><button class="small">Go</button></div></div>
+  {% set show_consignor = true %}{% set select = true %}{% set href = "/items/" %}
+  {% include "_items_table.html" %}
+</form>
+{% endblock %}

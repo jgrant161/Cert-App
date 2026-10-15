@@ -1,0 +1,37 @@
+{% extends "base.html" %}{% block title %}Settings{% endblock %}
+{% block body %}
+<h1>Settings</h1>
+<form method="post">
+<div class="grid g2">
+  <div class="card">
+    <h2>Commission</h2>
+    <label>Tiers by sale price (price:percent)<input name="commission_tiers" value="{{ tiers }}"></label>
+    <p class="small muted">“0:30, 100:25, 500:20, 1000:15” means 30% on sales under $100, 25% from $100, 20% from $500, 15% from $1,000. A consignor's own rate, or an item's, replaces the tiers.</p>
+    <label class="check"><input type="checkbox" name="fees_before_commission" value="1" {{ 'checked' if s.fees_before_commission }}> Take marketplace and card fees off the sale price before the split</label>
+    <p class="small muted">Off: the shop pays the fees out of its commission.</p>
+    <h3>Fee estimates</h3>
+    <p class="small muted">Used to pre-fill a sale. The real fee on the order is what you should enter.</p>
+    <div class="tablewrap"><table><thead><tr><th>Channel</th><th>% of sale</th><th>Per order $</th></tr></thead><tbody>
+    {% for ch, label in CHANNELS.items() %}{% set f = s.channel_fees.get(ch, [0, 0]) %}
+    <tr><td>{{ label }}</td><td><input name="fee_pct_{{ ch }}" value="{{ '%g' % f[0] }}" style="width:80px" inputmode="decimal"></td><td><input name="fee_fixed_{{ ch }}" value="{{ f[1] | plain }}" style="width:80px" inputmode="decimal"></td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  <div class="card">
+    <h2>Terms and accounts</h2>
+    <div class="fields">
+      <label>Shop name<input name="shop_name" value="{{ s.shop_name }}"></label>
+      <label>Consignment period (days)<input name="consignment_days" value="{{ s.consignment_days }}" inputmode="numeric"></label>
+      <label>Hold before payout (days)<input name="hold_days" value="{{ s.hold_days }}" inputmode="numeric"></label>
+      <label>Minimum payout<input name="min_payout" value="{{ s.min_payout_cents | plain }}" inputmode="decimal"></label>
+      <label>Shop account name<input name="shop_account_name" value="{{ s.shop_account_name }}"></label>
+      <label>Consignment account name<input name="consignment_account_name" value="{{ s.consignment_account_name }}"></label>
+      <label>Consignment account opening balance<input name="opening_consignment" value="{{ s.opening_consignment_cents | plain }}" inputmode="decimal"></label>
+      <label>Label stock<select name="label_format"><option value="thermal" {{ 'selected' if s.label_format == 'thermal' }}>Thermal 2.25 × 1.25 in</option><option value="avery5160" {{ 'selected' if s.label_format == 'avery5160' }}>Avery 5160</option></select></label>
+    </div>
+    <label>Consignment agreement (consignors accept this in the portal)<textarea name="agreement" style="min-height:200px">{{ s.agreement }}</textarea></label>
+  </div>
+</div>
+<button>Save settings</button>
+</form>
+<p style="margin-top:20px"><a href="/users">Staff accounts</a> · <a href="/activity">Activity log</a></p>
+{% endblock %}

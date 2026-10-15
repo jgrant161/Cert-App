@@ -1,0 +1,114 @@
+{% extends "base.html" %}{% block title %}{{ item.sku }}{% endblock %}
+{% block body %}
+{% set i = item %}
+<p class="small"><a href="/items">Inventory</a> · <a href="/consignors/{{ i.consignor_id }}">{{ i.consignor_name }} ({{ i.consignor_code }})</a></p>
+<div class="head">
+  <div><h1>{{ i.title }}</h1>
+    <p><span class="mono">{{ i.sku }}</span> · <span class="pill {{ i.status }}">{{ STATUS_LABELS[i.status] }}</span>
+      {% if i.price_cents %} · <b>{{ i.price_cents | money }}</b>{% endif %}
+      {% if i.min_cents %} <span class="muted small">floor {{ i.min_cents | money }}</span>{% endif %}
+      {% if i.expires_at and i.status in ('received', 'listed') %} · <span class="small {{ 'error' if i.expires_at < today() }}">period ends {{ i.expires_at }}</span>{% endif %}
+      {% if i.location %} · <span class="small">{{ i.location }}</span>{% endif %}
+      {% if i.square_item_id %} · <span class="small muted">in Square</span>{% endif %}</p></div>
+  <div class="row">
+    <a class="button ghost" href="/labels?ids={{ i.id }}">Print label</a>
+    {% if i.status == "submitted" %}
+      <form method="post" action="/items/{{ i.id }}/receive" class="row"><input name="location" placeholder="Case / shelf" style="width:120px"><button>Check in</button></form>
+      <form method="post" action="/items/{{ i.id }}/decline"><button class="ghost">Decline</button></form>
+    {% elif i.status == "received" %}
+      <form method="post" action="/items/{{ i.id }}/list"><button>List for sale</button></form>
+    {% endif %}
+    {% if i.status in ("received", "listed") %}<form method="post" action="/items/{{ i.id }}/return" onsubmit="return confirm('Mark this item as returned to the consignor?')"><button class="ghost">Returned to consignor</button></form>{% endif %}
+    {% if i.status == "returned" %}<form method="post" action="/items/{{ i.id }}/relist"><button class="ghost">Back in the shop</button></form>{% endif %}
+    {% if square_on and i.status in ("received", "listed") %}<form method="post" action="/items/{{ i.id }}/square"><button class="ghost">{{ 'Update in Square' if i.square_item_id else 'Send to Square' }}</button></form>{% endif %}
+  </div>
+</div>
+
+<div class="grid g2">
+  <div>
+    {% if i.status in ("received", "listed") %}
+    <div class="card">
+      <h2>Record a sale</h2>
+      <form method="post" action="/items/{{ i.id }}/sale">
+        <div class="fields">
+          <label>Where<select name="channel" id="channel">{% for k, v in CHANNELS.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+          <label>Sale price<input name="price" value="{{ i.price_cents | plain }}" inputmode="decimal" required></label>
+          <label>Fees (blank = estimate)<input name="fees" id="fees" inputmode="decimal" placeholder="{{ fee_estimates['instore'] | plain }}"></label>
+          <label>Date<input name="sold_at" type="date" value="{{ today() }}"></label>
+          <label>Order #<input name="external_ref"></label>
+        </div>
+        {% if i.min_cents %}<label class="check"><input type="checkbox" name="below_floor" value="1"> Below floor, approved by consignor</label>{% endif %}
+        <button>Record sale</button>
+        <p class="small muted" style="margin-top:8px">In-store sales rung up on Square come in by themselves{% if not square_on %} once Square is connected{% endif %}. Enter the actual marketplace fee from the order when you have it.</p>
+      </form>
+      <script>
+        const est = {{ fee_estimates | tojson }};
+        document.getElementById('channel').addEventListener('change', e => {
+          document.getElementById('fees').placeholder = (est[e.target.value] / 100).toFixed(2);
+        });
+      </script>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Price</h2>
+      {% if pending %}
+        <div class="note">{% if pending.proposed_by == "consignor" %}<b>{{ i.consignor_name }} asks for {{ pending.price_cents | money }}</b>{% else %}Waiting on the consignor to approve <b>{{ pending.price_cents | money }}</b>{% endif %}
+          {% if pending.note %}<br>“{{ pending.note }}”{% endif %}
+          <div class="row" style="margin-top:8px">
+          {% if pending.proposed_by == "consignor" %}
+            <form method="post" action="/items/{{ i.id }}/proposals/{{ pending.id }}"><button name="answer" value="accept" class="small">Accept</button></form>
+            <form method="post" action="/items/{{ i.id }}/proposals/{{ pending.id }}"><button name="answer" value="decline" class="small ghost">Decline</button></form>
+          {% else %}
+            <form method="post" action="/items/{{ i.id }}/proposals/{{ pending.id }}"><button name="answer" value="withdraw" class="small ghost">Withdraw</button></form>
+          {% endif %}</div></div>
+      {% endif %}
+      {% if i.status not in ("sold", "returned", "declined") %}
+      <form method="post" action="/items/{{ i.id }}/price">
+        <div class="fields"><label>Price<input name="price" value="{{ i.price_cents | plain }}" inputmode="decimal" required></label>
+          <label>Note to consignor<input name="note" placeholder="optional"></label></div>
+        <div class="row"><button name="mode" value="set">Set price</button><button name="mode" value="propose" class="ghost">Ask consignor to approve</button></div>
+      </form>
+      {% endif %}
+      {% if preview %}
+      <p class="small muted" style="margin-top:10px">At {{ (i.price_cents or i.asking_cents) | money }} in store: fees ~{{ (fee_estimates['instore']) | money }}, shop {{ preview.commission_cents | money }} ({{ '%g' % rate }}%), consignor {{ preview.consignor_cents | money }}.</p>
+      {% endif %}
+      {% if proposals %}<details><summary class="small">Price history</summary><ul class="small">{% for p in proposals %}<li>{{ p.created_at[:10] }} · {{ 'Shop' if p.proposed_by == 'shop' else 'Consignor' }} proposed {{ p.price_cents | money }} · {{ p.status }}{% if p.note %} · “{{ p.note }}”{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+    </div>
+
+    <div class="card" id="photos">
+      <h2>Photos</h2>
+      <div class="photos">{% for p in photos %}
+        <figure><a href="/p/{{ p.token }}.{{ p.ext }}" target="_blank"><img src="/p/{{ p.token }}.{{ p.ext }}" alt="Photo {{ loop.index }}"></a>
+          <figcaption>{% if loop.first %}<span class="muted">Cover</span>{% else %}<form method="post" action="/items/{{ i.id }}/photos/{{ p.id }}/cover"><button class="link">Make cover</button></form>{% endif %}
+            <form method="post" action="/items/{{ i.id }}/photos/{{ p.id }}/delete" onsubmit="return confirm('Delete this photo?')"><button class="link">Delete</button></form></figcaption></figure>
+      {% else %}<p class="muted">No photos yet.</p>{% endfor %}</div>
+      <form method="post" action="/items/{{ i.id }}/photos" enctype="multipart/form-data" class="row" style="margin-top:10px">
+        <input type="file" name="photos" accept="image/*" multiple capture="environment" required><button class="small">Upload</button></form>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Listing copy</h2>
+      <p class="small muted">Ready to paste into eBay, Whatnot or TCGplayer. For many items at once, tick them on the Inventory page and download the marketplace's upload file.</p>
+      <label>Title ({{ copy.title|length }}/80)<input value="{{ copy.title }}" readonly onclick="this.select()"></label>
+      <div class="copybox">{{ copy.description }}</div>
+      {% if photo_urls %}<details style="margin-top:8px"><summary class="small">Photo links</summary><div class="copybox mono">{{ photo_urls | join('\n') }}</div></details>{% endif %}
+    </div>
+
+    <div class="card">
+      <details {{ 'open' if i.status in ('submitted', 'received') }}><summary>Details</summary>
+      <form method="post" action="/items/{{ i.id }}">
+        {% set staff_fields = true %}{% include "_item_fields.html" %}
+        <button>Save</button>
+      </form></details>
+    </div>
+
+    {% if sales %}<div class="card"><h2>Sales</h2>{% set hide_consignor = true %}{% set hide_item = true %}{% set void_buttons = true %}{% include "_sales_table.html" %}</div>{% endif %}
+
+    <div class="card"><h2>History</h2>
+      <ul class="small">{% for h in history %}<li>{{ h.at[:16].replace('T', ' ') }} · {{ h.user_email or 'system' }} · {{ h.action.replace('_', ' ') }}{% if h.detail %} · {{ h.detail }}{% endif %}</li>{% endfor %}</ul></div>
+  </div>
+</div>
+{% endblock %}

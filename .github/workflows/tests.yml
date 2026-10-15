@@ -29,3 +29,31 @@ jobs:
         run: pytest -q
         env:
           CERTAPP_TEST_DATABASE_URL: postgresql://certapp:certapp@localhost:5432/certapp_test
+
+  consignment:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: consign
+          POSTGRES_PASSWORD: consign
+          POSTGRES_DB: consign_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U consign" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: dugout-consign
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" pytest
+      - name: Tests on SQLite
+        run: python -m pytest -q
+      - name: Tests on PostgreSQL
+        run: python -m pytest -q
+        env:
+          CONSIGN_TEST_DATABASE_URL: postgresql://consign:consign@localhost:5432/consign_test

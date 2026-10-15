@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}Sign in{% endblock %}
+{% block body %}
+<div class="card" style="max-width:420px;margin:30px auto">
+  <h1>Sign in</h1>
+  <p class="muted small">Consignors: use the email the shop has on file. First time? Use the link the shop sent you.</p>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Email<input name="email" type="email" value="{{ email }}" required autocomplete="username"></label>
+    <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+    <button>Sign in</button>
+  </form>
+</div>
+{% endblock %}

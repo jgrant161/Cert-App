@@ -1,0 +1,68 @@
+{% extends "base.html" %}{% block title %}{{ c.name }}{% endblock %}
+{% block body %}
+<p class="small"><a href="/consignors">Consignors</a></p>
+<div class="head"><div><h1>{{ c.name }} <span class="mono muted" style="font-size:16px">{{ c.code }}</span></h1>
+  <p class="muted small">{% if c.commission_pct is not none %}{{ '%g' % c.commission_pct }}% commission{% else %}Shop commission tiers{% endif %} · paid by {{ PAYOUT_METHODS[c.payout_method] }}{% if c.payout_details %} ({{ c.payout_details }}){% endif %}
+  · agreement {% if c.agreement_accepted_at %}accepted {{ c.agreement_accepted_at[:10] }}{% else %}<b>not yet accepted</b>{% endif %}</p></div>
+  <div class="row"><a class="button" href="/items/new?consignor={{ c.id }}">Check in an item</a>
+    <a class="button ghost" href="/payouts?consignor={{ c.id }}">Pay out</a>
+    <a class="button ghost" href="/consignors/{{ c.id }}/statement.csv">Statement (CSV)</a></div></div>
+
+<div class="grid g4">
+  <div class="card stat"><div class="k">Owed</div><div class="value">{{ bal.balance | money }}</div><div class="small muted">{{ bal.held | money }} on hold{% if bal.pending_payouts %} · {{ bal.pending_payouts | money }} payout pending{% endif %}</div></div>
+  <div class="card stat ok"><div class="k">Payable now</div><div class="value">{{ bal.available | money }}</div></div>
+  <div class="card stat"><div class="k">Lifetime sales</div><div class="value">{{ bal.gross | money }}</div><div class="small muted">{{ bal.sales_count }} sold · {{ bal.earned | money }} to consignor</div></div>
+  <div class="card stat"><div class="k">Paid out</div><div class="value">{{ bal.paid | money }}</div></div>
+</div>
+
+<div class="card">
+  <form method="post" action="/items/bulk">
+  <div class="head"><h2>Items ({{ items|length }})</h2>
+    <div class="row"><select name="action" aria-label="With selected items"><option value="labels">Print labels</option><option value="ebay">eBay upload file</option><option value="whatnot">Whatnot upload file</option><option value="tcgplayer">TCGplayer upload file</option><option value="square_push">Send to Square</option></select><button class="small">Go</button></div></div>
+  {% set rows = items %}{% set show_consignor = false %}{% set select = true %}{% set href = "/items/" %}
+  {% include "_items_table.html" %}
+  </form>
+</div>
+
+<div class="card">
+  <h2>Statement</h2>
+  {% set rows = statement %}{% include "_statement_table.html" %}
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <h2>Charge or credit</h2>
+    <p class="small muted">Grading fees, shipping you paid for them, corrections. Shows on their statement.</p>
+    <form method="post" action="/consignors/{{ c.id }}/adjustments">
+      <div class="fields">
+        <label>Type<select name="direction"><option value="charge">Charge (they owe the shop)</option><option value="credit">Credit (shop owes them)</option></select></label>
+        <label>Amount<input name="amount" inputmode="decimal" required></label>
+        <label>Date<input name="at" type="date" value="{{ today() }}"></label>
+      </div>
+      <label>What for<input name="memo" required></label>
+      <button>Record</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Portal access</h2>
+    {% if invite_link %}<div class="note info">Send this link to {{ c.name }} (text or email). It works once:<br><span class="mono" style="word-break:break-all">{{ invite_link }}</span></div>{% endif %}
+    {% for u in logins %}<p>{{ u.email }} · {% if u.password_hash %}{{ 'signed in ' ~ u.last_login_at[:10] if u.last_login_at else 'password set' }}{% else %}invited{% endif %}
+      {% if not u.active %}<span class="pill">off</span>{% endif %}
+      <form class="inline" method="post" action="/users/{{ u.id }}/toggle">{% if can(user, "users") %}<button class="link">{{ 'Turn off' if u.active else 'Turn on' }}</button>{% endif %}</form></p>{% endfor %}
+    <form method="post" action="/consignors/{{ c.id }}/invite" class="row">
+      <input name="email" type="email" value="{{ c.email or '' }}" placeholder="Email" required>
+      <button class="small">{{ 'New sign-in link' if logins else 'Invite to the portal' }}</button>
+    </form>
+    <p class="small muted" style="margin-top:8px">Consignors see only their own items, prices, sales, statement and payouts. They can submit items with photos and agree or counter on prices.</p>
+  </div>
+</div>
+
+<div class="card">
+  <details><summary>Edit details</summary>
+  <form method="post" action="/consignors/{{ c.id }}">
+    {% include "_consignor_fields.html" %}
+    <label class="check"><input type="checkbox" name="active" value="1" {{ 'checked' if c.active }}> Active</label>
+    <button>Save</button>
+  </form></details>
+</div>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% set sales = sales if sales is defined else recent %}
+<div class="tablewrap"><table>
+  <thead><tr><th>Date</th>{% if not hide_item %}<th>Item</th>{% endif %}{% if not hide_consignor %}<th>Consignor</th>{% endif %}<th>Channel</th><th class="num">Sale</th><th class="num">Fees</th><th class="num">Shop</th><th class="num">Consignor</th>{% if void_buttons %}<th></th>{% endif %}</tr></thead>
+  <tbody>
+  {% for s in sales %}
+  <tr class="{{ 'void' if s.voided_at }}">
+    <td class="nowrap">{{ s.sold_at }}</td>
+    {% if not hide_item %}<td><a href="/items/{{ s.item_id }}">{{ s.title }}</a> <span class="mono muted">{{ s.sku }}</span>{% if s.external_ref %} <span class="small muted">#{{ s.external_ref }}</span>{% endif %}</td>{% endif %}
+    {% if not hide_consignor %}<td class="small">{{ s.consignor_name }}</td>{% endif %}
+    <td class="small">{{ CHANNELS[s.channel] }}{% if hide_item and s.external_ref %}<br><span class="muted">#{{ s.external_ref }}</span>{% endif %}</td>
+    <td class="num">{{ s.price_cents | money }}</td><td class="num">{{ s.fees_cents | money }}</td>
+    <td class="num">{{ s.commission_cents | money }} <span class="muted small">{{ '%g' % s.commission_pct }}%</span></td>
+    <td class="num">{{ s.consignor_cents | money }}</td>
+    {% if void_buttons %}<td>{% if s.voided_at %}<span class="small muted">Void: {{ s.void_reason }}</span>{% elif can(user, "void") %}
+      <details><summary class="small">Void</summary><form method="post" action="/sales/{{ s.id }}/void" class="row"><input name="reason" placeholder="Why (return, cancelled...)" required><button class="small">Void sale</button></form></details>{% endif %}</td>{% endif %}
+  </tr>
+  {% else %}<tr><td colspan="9" class="muted">No sales yet.</td></tr>{% endfor %}
+  </tbody>
+</table></div>

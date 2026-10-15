@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Activity{% endblock %}
+{% block body %}
+<h1>Activity</h1>
+<div class="card"><div class="tablewrap"><table><thead><tr><th>When (UTC)</th><th>Who</th><th>What</th><th>Item</th><th>Detail</th></tr></thead>
+<tbody>{% for a in rows %}<tr><td class="nowrap small">{{ a.at[:16].replace('T', ' ') }}</td><td class="small">{{ a.user_email or 'system' }}</td><td>{{ a.action.replace('_', ' ') }}</td>
+<td>{% if a.item_id %}<a href="/items/{{ a.item_id }}">#{{ a.item_id }}</a>{% elif a.consignor_id %}<a href="/consignors/{{ a.consignor_id }}">consignor</a>{% endif %}</td><td class="small">{{ a.detail or '' }}</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

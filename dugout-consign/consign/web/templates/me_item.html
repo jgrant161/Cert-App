@@ -1,0 +1,44 @@
+{% extends "base.html" %}{% block title %}{{ item.title }}{% endblock %}
+{% block body %}
+{% set i = item %}
+<p class="small"><a href="/me">My items</a></p>
+<h1>{{ i.title }}</h1>
+<p><span class="mono">{{ i.sku }}</span> · <span class="pill {{ i.status }}">{{ STATUS_LABELS[i.status] }}</span>
+  {% if i.price_cents %} · price <b>{{ i.price_cents | money }}</b>{% endif %}
+  {% if i.asking_cents %} · you asked {{ i.asking_cents | money }}{% endif %}
+  {% if i.min_cents %} · your floor {{ i.min_cents | money }}{% endif %}
+  {% if i.expires_at and i.status in ('received', 'listed') %} · consignment period ends {{ i.expires_at }}{% endif %}</p>
+<div class="grid g2">
+  <div>
+    <div class="card"><h2>Price</h2>
+      {% if pending %}
+        <div class="note">{% if pending.proposed_by == "shop" %}The shop suggests <b>{{ pending.price_cents | money }}</b>{% if pending.note %}: “{{ pending.note }}”{% endif %}
+          <div class="row" style="margin-top:8px">
+            <form method="post" action="/me/items/{{ i.id }}/proposals/{{ pending.id }}"><button name="answer" value="accept" class="small">Accept {{ pending.price_cents | money }}</button></form>
+            <form method="post" action="/me/items/{{ i.id }}/proposals/{{ pending.id }}"><button name="answer" value="decline" class="small ghost">Decline</button></form></div>
+        {% else %}You asked for <b>{{ pending.price_cents | money }}</b>. Waiting on the shop.
+          <form method="post" action="/me/items/{{ i.id }}/proposals/{{ pending.id }}" style="margin-top:6px"><button name="answer" value="withdraw" class="small ghost">Withdraw</button></form>{% endif %}</div>
+      {% endif %}
+      {% if i.status not in ("sold", "returned", "declined") %}
+      <form method="post" action="/me/items/{{ i.id }}/propose">
+        <div class="fields"><label>Ask for a different price<input name="price" inputmode="decimal" required></label><label>Note<input name="note"></label></div>
+        <button class="ghost">Send to the shop</button></form>
+      {% endif %}
+      {% if examples %}<h3>What you'd get at {{ (i.price_cents or i.asking_cents) | money }}</h3>
+        <table><tbody>{% for ch, e in examples.items() %}<tr><td>{{ CHANNELS[ch] }}</td><td class="num">{{ e.consignor_cents | money }}</td><td class="small muted">after ~fees and {{ '%g' % e.pct }}% commission</td></tr>{% endfor %}</tbody></table>{% endif %}
+      {% if proposals %}<details><summary class="small">Price history</summary><ul class="small">{% for p in proposals %}<li>{{ p.created_at[:10] }} · {{ 'Shop' if p.proposed_by == 'shop' else 'You' }}: {{ p.price_cents | money }} · {{ p.status }}</li>{% endfor %}</ul></details>{% endif %}
+    </div>
+    {% if sales %}<div class="card"><h2>Sold</h2>
+      <table><tbody>{% for s in sales %}<tr><td>{{ s.sold_at }}</td><td>{{ CHANNELS[s.channel] }}</td><td class="num">{{ s.price_cents | money }}</td></tr>
+      <tr><td colspan="2" class="small muted">Fees {{ s.fees_cents | money }} · commission {{ s.commission_cents | money }} ({{ '%g' % s.commission_pct }}%)</td><td class="num"><b>{{ s.consignor_cents | money }} to you</b></td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  </div>
+  <div class="card"><h2>Photos</h2>
+    <div class="photos">{% for p in photos %}<figure><img src="/p/{{ p.token }}.{{ p.ext }}" alt="Photo {{ loop.index }}"></figure>{% else %}<p class="muted">No photos yet.</p>{% endfor %}</div>
+    {% if i.status == "submitted" %}
+    <form method="post" action="/me/items/{{ i.id }}/photos" enctype="multipart/form-data" class="row" style="margin-top:10px"><input type="file" name="photos" accept="image/*" multiple required><button class="small">Add photos</button></form>{% endif %}
+    <h3>Details</h3>
+    <p class="small">{% for k, label in [("year", "Year"), ("brand_set", "Set"), ("card_number", "Card #"), ("subject", "Player"), ("grader", "Grader"), ("grade", "Grade"), ("cert_number", "Cert"), ("condition", "Condition")] %}{% if i[k] %}{{ label }}: {{ i[k] }}<br>{% endif %}{% endfor %}</p>
+    {% if i.description %}<p class="small">{{ i.description }}</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

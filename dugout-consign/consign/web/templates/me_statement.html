@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Statement{% endblock %}
+{% block body %}
+<div class="head"><div><h1>Statement</h1><p class="muted">{{ c.name }} · {{ c.code }} · balance {{ bal.balance | money }} ({{ bal.available | money }} available)</p></div>
+  <div class="row"><a class="button ghost" href="/me/statement.csv">Download (CSV)</a><button class="ghost" onclick="window.print()">Print</button></div></div>
+<div class="card">{% include "_statement_table.html" %}</div>
+<p class="small muted">Every sale shows the sale price, the marketplace or card fee, the shop's commission, and what you receive. Payouts are made from the shop's separate consignment account.</p>
+{% endblock %}

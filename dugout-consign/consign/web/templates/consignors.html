@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}Consignors{% endblock %}
+{% block body %}
+<div class="head"><h1>Consignors</h1>
+  <div class="row small">{% if show == "active" %}<a href="/consignors?show=all">Show inactive too</a>{% else %}<a href="/consignors">Active only</a>{% endif %}</div></div>
+<div class="card">
+  <div class="tablewrap"><table>
+    <thead><tr><th>Code</th><th>Name</th><th>Contact</th><th>Payout</th><th class="num">In shop</th><th class="num">Owed</th><th class="num">Payable now</th></tr></thead>
+    <tbody>{% for c in rows %}{% set b = balances[c.id] %}
+    <tr><td class="mono">{{ c.code }}</td><td><a href="/consignors/{{ c.id }}">{{ c.name }}</a>{% if not c.active %} <span class="pill">inactive</span>{% endif %}{% if c.submitted %} <span class="pill submitted">{{ c.submitted }} submitted</span>{% endif %}</td>
+      <td class="small">{{ c.email or '' }}<br>{{ c.phone or '' }}</td><td class="small">{{ PAYOUT_METHODS[c.payout_method] }}</td>
+      <td class="num">{{ c.on_hand }}</td><td class="num">{{ b.balance | money }}</td><td class="num">{{ b.available | money }}</td></tr>
+    {% else %}<tr><td colspan="7" class="muted">No consignors yet. Add the first one below.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+<div class="card" id="new">
+  <h2>Add a consignor</h2>
+  <form method="post" action="/consignors">
+    {% set c = {} %}{% include "_consignor_fields.html" %}
+    <button>Add consignor</button>
+  </form>
+</div>
+{% endblock %}

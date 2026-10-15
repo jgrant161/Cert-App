@@ -1,0 +1,10 @@
+<div class="fields">
+  <label>Name<input name="name" value="{{ c.name or '' }}" required></label>
+  <label>Email<input name="email" type="email" value="{{ c.email or '' }}"></label>
+  <label>Phone<input name="phone" value="{{ c.phone or '' }}"></label>
+  <label>Payout method<select name="payout_method">{% for k, v in PAYOUT_METHODS.items() %}<option value="{{ k }}" {{ 'selected' if c.payout_method == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Payout details<input name="payout_details" value="{{ c.payout_details or '' }}" placeholder="Zelle phone, PayPal email..."></label>
+  <label>Commission % (blank = shop tiers)<input name="commission_pct" value="{{ '%g' % c.commission_pct if c.commission_pct is not none and c.commission_pct is defined else '' }}" inputmode="decimal"></label>
+</div>
+<label>Mailing address<textarea name="address" style="min-height:50px">{{ c.address or '' }}</textarea></label>
+<label>Notes (shop only)<textarea name="notes" style="min-height:50px">{{ c.notes or '' }}</textarea></label>

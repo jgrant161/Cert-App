@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% block title %}My consignments{% endblock %}
+{% block body %}
+<div class="head"><div><h1>Hi, {{ c.name }}</h1><p class="muted small">Consignor {{ c.code }} · commission: {{ rate_text }}</p></div>
+  <div class="row"><a class="button" href="/me/submit">Submit an item</a><a class="button ghost" href="/me/statement">Statement</a></div></div>
+
+{% if not c.agreement_accepted_at %}
+<div class="card" style="border-color:var(--red)">
+  <h2>Consignment agreement</h2>
+  <div class="copybox">{{ setting("agreement") }}</div>
+  <form method="post" action="/me/agree" style="margin-top:10px"><button>I agree</button></form>
+</div>
+{% endif %}
+
+<div class="grid g4">
+  <div class="card stat ok"><div class="k">Available for payout</div><div class="value">{{ bal.available | money }}</div><div class="small muted">Paid by {{ PAYOUT_METHODS[c.payout_method] }} · <a href="/account">change</a></div></div>
+  <div class="card stat"><div class="k">On hold</div><div class="value">{{ bal.held | money }}</div><div class="small muted">Recent sales, payable after {{ setting("hold_days") }} days{% if bal.pending_payouts %} · {{ bal.pending_payouts | money }} payout on the way{% endif %}</div></div>
+  <div class="card stat"><div class="k">Total sales</div><div class="value">{{ bal.gross | money }}</div><div class="small muted">{{ bal.sales_count }} sold · {{ bal.earned | money }} to you</div></div>
+  <div class="card stat"><div class="k">Paid to you</div><div class="value">{{ bal.paid | money }}</div></div>
+</div>
+
+{% if proposals %}
+<div class="card" style="border-color:var(--red)"><h2>Price changes to approve</h2>
+  <ul>{% for p in proposals %}<li><a href="/me/items/{{ p.item_id }}">{{ p.title }}</a>: the shop suggests <b>{{ p.price_cents | money }}</b> (now {{ p.current_cents | money('—') }}){% if p.note %} — “{{ p.note }}”{% endif %}</li>{% endfor %}</ul></div>
+{% endif %}
+
+<div class="card"><h2>Your items</h2>
+  <p class="small muted">{{ counts.get('listed', 0) }} for sale · {{ counts.get('received', 0) }} at the shop, being priced · {{ counts.get('submitted', 0) }} submitted · {{ counts.get('sold', 0) }} sold</p>
+  {% set rows = items %}{% set show_consignor = false %}{% set select = false %}{% set href = "/me/items/" %}
+  {% include "_items_table.html" %}
+</div>
+
+<div class="grid g2">
+  <div class="card"><h2>Recent sales</h2>
+    <div class="tablewrap"><table><thead><tr><th>Date</th><th>Item</th><th>Where</th><th class="num">Sold for</th><th class="num">To you</th></tr></thead>
+    <tbody>{% for s in sales %}<tr><td class="nowrap">{{ s.sold_at }}</td><td><a href="/me/items/{{ s.item_id }}">{{ s.title }}</a></td><td class="small">{{ CHANNELS[s.channel] }}</td><td class="num">{{ s.price_cents | money }}</td><td class="num">{{ s.consignor_cents | money }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No sales yet.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="card"><h2>Payouts</h2>
+    <div class="tablewrap"><table><thead><tr><th>Date</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
+    <tbody>{% for p in payouts if p.status != 'void' %}<tr><td>{{ p.sent_at or p.created_at[:10] }}</td><td class="small">{{ PAYOUT_METHODS[p.method] }}{% if p.reference %} · {{ p.reference }}{% endif %}</td><td><span class="pill {{ p.status }}">{{ p.status }}</span></td><td class="num">{{ p.amount_cents | money }}</td></tr>
+    {% else %}<tr><td colspan="4" class="muted">No payouts yet.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+{% endblock %}
