@@ -233,8 +233,11 @@ def test_backup_and_privacy(make_client, owner):
     c = sign_in(make_client(), owner)
     c.post(f"/items/{item['id']}/photos", files=[("photos", ("a.png", PNG, "image/png"))])
     r = c.get("/settings/backup")
-    import io
-    import zipfile
-    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
-    assert "consign.db" in names and any(n.startswith("files/photos/") for n in names)
+    if db.is_postgres():
+        assert "use your host" in r.text      # PostgreSQL is backed up by the host, not by this button
+    else:
+        import io
+        import zipfile
+        names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+        assert "consign.db" in names and any(n.startswith("files/photos/") for n in names)
     assert make_client().get("/privacy").status_code == 200
