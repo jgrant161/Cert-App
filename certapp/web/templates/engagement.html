@@ -245,6 +245,13 @@
     <label>Flag certificates expiring within <input type="number" name="expiring_soon_days" value="{{ policy.expiring_soon_days }}" min="0" class="short"> days</label>
     <label>Mark a form "Review for validity" when <input type="number" name="review_if_missing" value="{{ policy.review_if_missing }}" min="1" class="short"> or more items are missing (fewer are listed as "Missing: …")</label>
 
+    <h3>Seller check</h3>
+    <p class="small muted">Every certificate's seller must be this client: <b>{{ e.seller_name or e.client_name }}</b>.
+      Shortened forms pass ("Additive Manuf" for Additive Manufacturing LLC); a different company fails and the
+      certificate is marked Invalid; a misspelling or a longer name is sent to a reviewer to confirm.</p>
+    <label>Other names this client sells under (trade names, other entities), separated by semicolons
+      <input name="seller_aliases" value="{{ policy.seller_aliases }}" placeholder="e.g. AM Printing Services; Additive Holdings Inc."></label>
+
     <h3>Form acceptance</h3>
     <p class="small muted">A Streamlined (SST) certificate is flagged Invalid for any state that is not an SST member
       (23 full members plus Tennessee as an associate, as of October 2026). Some non-member states do accept it: use a

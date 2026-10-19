@@ -267,3 +267,19 @@ def test_older_database_gains_new_columns(data_dir):
     with sqlite3.connect(path) as raw:
         cols = {r[1] for r in raw.execute("PRAGMA table_info(certificate)")}
     assert {"status_override", "other_pages_json", "pages", "parent_id"} <= cols
+
+
+def test_seller_is_checked_against_the_client_name():
+    from certapp import db
+    from certapp.extraction.schema import Party
+    name = "Acme Supply - Resale Certificate (CA).pdf"
+    ex = extraction([line("CA", "SR-1")], purchaser="Acme").model_copy(update={
+        "seller": Party(name="Autoliv Manufacturing Corporation", address=None, state=None)})
+    client = admin_client(TestClient(create_app(extractor=FakeExtractor({name: ex}))))
+    eid = db.create_engagement("Additive Manufacturing, LLC")            # no separate seller entered
+    client.post(f"/e/{eid}/upload", files=[("files", (name, make_pdf("s"), "application/pdf"))])
+    cid = db.list_certificates(eid)[0]["id"]
+    page = client.get(f"/e/{eid}/c/{cid}").text
+    assert "Does not match" in page and "not the client (Additive Manufacturing, LLC)" in page
+    client.post(f"/e/{eid}/policy", data={"seller_aliases": "Autoliv Manufacturing Corporation"})
+    assert "Does not match" not in client.get(f"/e/{eid}/c/{cid}").text

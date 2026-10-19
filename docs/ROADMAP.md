@@ -34,6 +34,7 @@ underneath them.
 | Confidence score on each extracted field | Done | Confidence for form, purchaser, seller, state lines, signature and expiration; medium and low are marked beside the field, and low ones are flagged for the reviewer. |
 | Merge customer name variants (Inc vs no Inc, parent vs subsidiary) | Done | Spelling variants join automatically; a Customers tab lets reviewers join parents, subsidiaries and trade names, and undo it. |
 | Completeness check (added October 19): note missing information on each form | Done | A Completeness column on screen and in Excel: "Valid", "Missing: …" listing what is blank (signature, date signed, buyer name or address, seller name, product description, registration number, exemption reason, other required fields), or "Review for validity" when three or more items are missing. A blank signature makes the certificate Invalid. |
+| Seller name must be the client (added October 19) | Done | Checked on every certificate against the client's name (or its seller name and other trade names in the review policy). Shortened forms pass; another company fails and is marked Invalid, with the seller named in the Completeness column; a misspelling or longer name goes to a reviewer. |
 | Status, flags and reviewer notes in the Excel export | Done | On every Schedule row and in Reconciliation, plus a Customers tab and status counts on the Overview. |
 
 ## Phase 2: Database and audit trail (next)

@@ -91,7 +91,7 @@ DEMO = {
     "Modern Living Spaces - Resale Certificate (Multijurisdiction).pdf": X(
         [L("CO", "34567890-0001")] + [L(s, "Wayfair Ruling", "non_numeric_text")
                                        for s in ("AZ", "GA", "IL", "TX")],
-        "Modern Living Spaces", multi=True, form=MTC, seller="Pacific Lighting Supply"),
+        "Modern Living Spaces", multi=True, form=MTC, seller="Autoliv Manufacturing Corporation"),
     "Patio Comforts - Resale Certificate (Multijurisdiction).pdf": X(
         [L(s, "", "blank") for s in ("AR", "GA", "IN", "KS")], "Patio Comforts", multi=True,
         form=SST, family="sst_streamlined",

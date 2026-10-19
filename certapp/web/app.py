@@ -170,7 +170,7 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
         policy = Policy.from_json(e["policy_json"])
         certs = db.list_certificates(e["id"])
         return policy, score_engagement(certs, policy, db.overrides_for_engagement(e["id"]),
-                                        seller_name=e.get("seller_name"))
+                                        seller_name=e.get("seller_name") or e["client_name"])
 
     def back(url: str) -> RedirectResponse:
         return RedirectResponse(url, status_code=303)

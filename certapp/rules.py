@@ -16,6 +16,7 @@ from collections import Counter
 from dataclasses import dataclass, field, asdict, fields
 from datetime import date, timedelta
 from functools import lru_cache
+import difflib
 
 from .extraction.schema import Extraction, JurisdictionLine
 from .states import SST_ASSOCIATE_MEMBERS, SST_FULL_MEMBERS, normalize_state, parse_state_list
@@ -37,6 +38,7 @@ class Policy:
     fein_exceptions: str = ""                 # states where the FEIN setting above is reversed
     uniform_not_accepted: str = ""            # states that do not take the MTC Uniform certificate
     expiration_rules: str = ""                # one per line: "IL: 3 years", "FL: calendar year", "TX: none"
+    seller_aliases: str = ""                  # other names the client sells under (trade names, entities)
     customer_aliases: dict = field(default_factory=dict)   # customer key -> key of the customer it joins
 
     @classmethod
@@ -72,7 +74,8 @@ POLICY_LABELS = {
     "schedule_expired": "Keep expired certificates on the schedule, marked Expired (unticked: they move to Excluded lines)",
 }
 
-TEXT_SETTINGS = ("home_state_exceptions", "fein_exceptions", "uniform_not_accepted", "expiration_rules")
+TEXT_SETTINGS = ("home_state_exceptions", "fein_exceptions", "uniform_not_accepted", "expiration_rules",
+                 "seller_aliases")
 
 
 @lru_cache(maxsize=64)
@@ -142,7 +145,7 @@ class ScheduleRow:
     exemption_reason: str | None = None
     purchaser_address: str | None = None
     seller_on_certificate: str | None = None
-    seller_match: str = ""                # Match | Does not match | Not stated | ""
+    seller_match: str = ""                # Match | Close match | Does not match | Not stated | ""
     review_status: str = ""
     reviewer_note: str | None = None
     completeness: str = ""                # Valid | Missing: ... | Review for validity: ...
@@ -284,9 +287,39 @@ def customer_key(name: str | None) -> str:
     return " ".join(words)
 
 
-def _same_party(a: str | None, b: str | None) -> bool:
-    ka, kb = customer_key(a), customer_key(b)
-    return bool(ka and kb) and (ka == kb or ka in kb or kb in ka)
+_ABBREVIATIONS = {"mfg": "manufacturing", "mfr": "manufacturing", "mfrs": "manufacturers", "intl": "international",
+                  "natl": "national", "svc": "service", "svcs": "services", "dist": "distribution",
+                  "assoc": "associates", "bros": "brothers", "ctr": "center", "grp": "group", "hldgs": "holdings"}
+
+
+def _name_words(name: str | None) -> list[str]:
+    key = customer_key(re.sub(r"\(.*?\)", " ", name or ""))      # "(demo data)" and similar notes
+    return [_ABBREVIATIONS.get(w, w) for w in key.split()]
+
+
+def _starts_like(short: list[str], long: list[str]) -> bool:
+    """Every word of the shorter name begins the matching word of the longer one:
+    'Additive Manuf' fits 'Additive Manufacturing'; 'Autoliv Manufacturing' does not."""
+    if not short or len(short) > len(long):
+        return False
+    return all(s == l or (len(s) >= 4 and l.startswith(s)) for s, l in zip(short, long))
+
+
+def match_seller(on_certificate: str | None, expected: list[str]) -> str:
+    """Match | Close match | Does not match | Not stated, for the seller named on a certificate."""
+    if not on_certificate or not on_certificate.strip():
+        return "Not stated"
+    got = _name_words(on_certificate)
+    best = "Does not match"
+    for name in expected:
+        want = _name_words(name)
+        if not want or not got:
+            continue
+        if got == want or _starts_like(got, want):
+            return "Match"                      # the full name, or a shortened form of it
+        if _starts_like(want, got) or difflib.SequenceMatcher(None, " ".join(got), " ".join(want)).ratio() >= 0.88:
+            best = "Close match"                # a longer name, or a likely misspelling: a reviewer confirms
+    return best
 
 
 # --- completeness ----------------------------------------------------------
@@ -344,12 +377,15 @@ def missing_items(ex: Extraction, non_resale: bool) -> list[str]:
     return missing
 
 
-def completeness_label(missing: list[str], policy: Policy) -> str:
+def completeness_label(missing: list[str], policy: Policy, wrong_seller: str | None = None) -> str:
+    seller = f"seller is not the client ({wrong_seller})" if wrong_seller else ""
     if not missing:
-        return "Valid"
+        return seller[0].upper() + seller[1:] if seller else "Valid"
     if len(missing) >= max(1, policy.review_if_missing):
-        return "Review for validity: missing " + ", ".join(missing)
-    return "Missing: " + ", ".join(missing)
+        label = "Review for validity: missing " + ", ".join(missing)
+    else:
+        label = "Missing: " + ", ".join(missing)
+    return label + (f"; {seller}" if seller else "")
 
 
 # --- engagement scoring ----------------------------------------------------
@@ -554,16 +590,17 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
         elif not ex.purchaser.address:
             flags.append(Flag("missing_purchaser_address", "follow_up", "The purchaser's address is not filled in"))
         if seller_name:
-            if not ex.seller.name:
-                seller_match = "Not stated"
-            elif _same_party(ex.seller.name, seller_name):
-                seller_match = "Match"
-            else:
-                seller_match = "Does not match"
+            expected = [seller_name] + [n.strip() for n in re.split(r"[;\n]+", policy.seller_aliases) if n.strip()]
+            seller_match = match_seller(ex.seller.name, expected)
+            if seller_match == "Does not match":
                 flags.append(Flag("seller_mismatch", "follow_up",
-                                  f"Made out to {ex.seller.name}, not {seller_name}"))
+                                  f"Made out to {ex.seller.name}, not the client ({seller_name})"))
+            elif seller_match == "Close match":
+                flags.append(Flag("seller_close_match", "review",
+                                  f"Seller on the certificate is {ex.seller.name}; confirm it is the client ({seller_name})"))
     missing = missing_items(ex, non_resale) if real_read else []
-    completeness = completeness_label(missing, policy) if real_read else "Not checked (filled in from the filename)"
+    completeness = (completeness_label(missing, policy, ex.seller.name if seller_match == "Does not match" else None)
+                    if real_read else "Not checked (filled in from the filename)")
     if "signature" in missing and ex.signed is not False:      # the reader saw an empty signature line
         flags.append(Flag("unsigned", "follow_up", "Certificate is not signed"))
     already = {"signature", "buyer name", "buyer address", "exemption reason"}   # flagged on their own

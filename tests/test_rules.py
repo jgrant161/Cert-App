@@ -329,3 +329,45 @@ def test_blank_signature_line_reported_by_reader_is_unsigned():
     ex = full(extraction([line("FL", "78-1")], signed=None), blank_fields=["Purchaser signature"])
     r = score([cert(1, "A - Resale Certificate (FL).pdf", ex)])
     assert completeness_of(r) == "Missing: signature" and status_of(r, 1) == "Invalid"
+
+
+# --- seller name -------------------------------------------------------------
+
+from certapp.rules import match_seller  # noqa: E402
+
+
+def test_seller_name_must_be_the_client():
+    client = ["Additive Manufacturing LLC"]
+    for ok in ("Additive Manufacturing", "Additive Manuf", "Additive", "Additive Mfg., Inc.",
+               "ADDITIVE MANUFACTURING, L.L.C."):
+        assert match_seller(ok, client) == "Match", ok
+    for bad in ("Autoliv Manufacturing Corporation", "Manufacturing", "Add", "Acme Additive"):
+        assert match_seller(bad, client) == "Does not match", bad
+    assert match_seller("Addtive Manufacturing LLC", client) == "Close match"          # misspelled
+    assert match_seller("Additive Manufacturing Solutions", client) == "Close match"   # longer name
+    assert match_seller(None, client) == "Not stated"
+    assert match_seller("AM Printing", client + ["AM Printing Services"]) == "Match"
+    assert match_seller("Sample Seller", ["Sample Seller (demo data)"]) == "Match"
+
+
+def test_wrong_seller_on_a_complete_certificate_is_invalid():
+    ex = full(extraction([line("MI", "MI-1")]), seller=Party(name="Autoliv Manufacturing Corporation",
+                                                             address=None, state=None),
+              property_description="Parts for resale")
+    r = score_engagement([cert(1, "A - Resale Certificate (MI).pdf", ex)], Policy(), today=TODAY,
+                         seller_name="Additive Manufacturing, LLC")
+    assert status_of(r, 1) == "Invalid" and "seller_mismatch" in codes(r, 1)
+    assert completeness_of(r) == "Seller is not the client (Autoliv Manufacturing Corporation)"
+    assert r.rows[0].seller_match == "Does not match"
+    ok = score_engagement([cert(1, "A - Resale Certificate (MI).pdf",
+                                full(ex, seller=Party(name="Additive Manuf", address=None, state=None)))],
+                          Policy(), today=TODAY, seller_name="Additive Manufacturing, LLC")
+    assert status_of(ok, 1) == "Valid" and completeness_of(ok) == "Valid"
+    close = score_engagement([cert(1, "A - Resale Certificate (MI).pdf",
+                                   full(ex, seller=Party(name="Addtive Manufacturing", address=None, state=None)))],
+                             Policy(), today=TODAY, seller_name="Additive Manufacturing, LLC")
+    assert status_of(close, 1) == "Pending" and "seller_close_match" in codes(close, 1)
+    alias = score_engagement([cert(1, "A - Resale Certificate (MI).pdf", ex)],
+                             Policy(seller_aliases="Autoliv Manufacturing Corp"), today=TODAY,
+                             seller_name="Additive Manufacturing, LLC")
+    assert status_of(alias, 1) == "Valid"
