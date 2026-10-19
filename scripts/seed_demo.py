@@ -59,7 +59,8 @@ def FC(**low):
 
 def X(lines, buyer, *, multi=False, form=("CDTFA-230", "California Resale Certificate"), family=None,
       ctype="resale", expires=None, reason=None, obs=(), conf="high", signed=True, address="present",
-      seller="Demo Seller, LLC", signed_on="2024-03-01", fc=None, pages=(1,)):
+      seller="Demo Seller, LLC", signed_on="2024-03-01", fc=None, pages=(1,),
+      products="Outdoor heaters and patio furniture for resale", blanks=()):
     if address == "present":
         address = f"{100 + len(buyer)} Commerce Way, {buyer.split()[0]}ville"
     return Extraction(
@@ -69,8 +70,8 @@ def X(lines, buyer, *, multi=False, form=("CDTFA-230", "California Resale Certif
         issuing_state=None if multi else lines[0].state,
         purchaser=Party(name=buyer, address=address, state=None),
         seller=Party(name=seller, address="Las Vegas, NV" if seller else None, state="NV" if seller else None),
-        certificate_type=ctype, exemption_reason=reason, is_multistate=multi,
-        jurisdiction_lines=lines, signed=signed, signature_date=signed_on, expiration_date=expires,
+        certificate_type=ctype, exemption_reason=reason, is_multistate=multi, property_description=products,
+        blank_fields=list(blanks), jurisdiction_lines=lines, signed=signed, signature_date=signed_on, expiration_date=expires,
         blanket=True, page_count_reviewed=max(pages), observations=list(obs), confidence=conf,
         source_pages=list(pages), field_confidence=fc or FC())
 
@@ -85,7 +86,8 @@ DEMO = {
     "Brandster - Resale Certificate (Multijurisdiction).pdf": X(
         [L("FL", "78-8012345678-9"), L("AL", "78-8012345678-9", "home_state_number", "FL"),
          L("CT", "78-8012345678-9", "home_state_number", "FL"), L("TX", "32012345678"),
-         L("GA", "", "blank"), L("NV", "N/A", "na")], "Brandster LLC", multi=True, form=MTC),
+         L("GA", "", "blank"), L("NV", "N/A", "na")], "Brandster LLC", multi=True, form=MTC,
+        products=None, blanks=["Description of items to be purchased"]),
     "Modern Living Spaces - Resale Certificate (Multijurisdiction).pdf": X(
         [L("CO", "34567890-0001")] + [L(s, "Wayfair Ruling", "non_numeric_text")
                                        for s in ("AZ", "GA", "IL", "TX")],
@@ -115,6 +117,11 @@ DEMO = {
           pages=(5,), fc=FC(registration_numbers="medium")),
     ], other_pages=[OtherPage(pages=[2], kind="w9", description="IRS Form W-9"),
                     OtherPage(pages=[6], kind="cover_letter", description="Cover letter from the customer's AP team")]),
+    "Coastal Rentals - Resale Certificate (FL).pdf": X(
+        [L("FL", "78-8099887766-5")], "Coastal Rentals", form=("DR-13", "Florida Annual Resale Certificate for Sales Tax"),
+        signed=None, signed_on=None, address=None, seller=None, products=None,
+        blanks=["Purchaser signature", "Date", "Seller name", "Description of property purchased"],
+        fc=FC(signature="low")),
     "Precision Machining - Exemption Certificate (OH).pdf": X(
         [L("OH", "", "blank")], "Precision Machining Co.", form=("STEC B", "Sales and Use Tax Blanket Exemption Certificate (Ohio)"),
         ctype="manufacturing", reason="Used directly in production of tangible personal property (manufacturing)"),

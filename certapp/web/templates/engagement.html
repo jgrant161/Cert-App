@@ -102,9 +102,10 @@
     <button>Filter</button>
   </form>
   <p class="muted">{{ rows|length }} rows. Green row: state resolved from the document. Orange: filename state corrected. Blue: reviewer override. Status: <b>Valid</b> nothing outstanding · <b>Invalid</b> a defect the client must fix ·
-    <b>Expired</b> past its expiration date · <b>Pending</b> not read yet or waiting on a reviewer. Hover a status for the reason.</p>
+    <b>Expired</b> past its expiration date · <b>Pending</b> not read yet or waiting on a reviewer. Hover a status for the reason.
+    Completeness lists anything left blank on the form (signature, buyer, seller, product description and so on).</p>
   <div class="scroll"><table class="grid">
-    <thead><tr><th>Customer</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Status</th><th>Signed</th><th>Expires</th><th>Form</th><th>Source file</th><th>Flags</th></tr></thead>
+    <thead><tr><th>Customer</th><th>Type</th><th>State</th><th>Registration / ID</th><th>Status</th><th>Completeness</th><th>Expires</th><th>Form</th><th>Source file</th><th>Flags</th></tr></thead>
     <tbody>
     {% for r in rows %}
       <tr class="basis-{{ r.basis }} {{ 'flagged' if r.flags }}">
@@ -112,7 +113,7 @@
         <td>{{ r.certificate_type }}</td><td>{{ r.state }}</td>
         <td class="mono">{{ r.registration or "" }}</td>
         <td><span class="pill status-{{ r.status|lower }}" title="{{ r.status_reason }}">{{ r.status }}</span></td>
-        <td class="nowrap small">{{ {True: "Yes", False: "No", None: "—"}[r.signed] }}{% if r.signature_date %}<br>{{ r.signature_date }}{% endif %}</td>
+        <td class="small {{ 'complete-ok' if r.completeness == 'Valid' else ('complete-bad' if r.completeness.startswith('Review') else '') }}">{{ r.completeness }}</td>
         <td class="nowrap small" title="{{ r.expiration_basis }}">{{ r.expires or "None stated" }}{% if r.expires and r.expiration_basis and r.expiration_basis != "Stated on the certificate" %}<br><span class="muted">state rule</span>{% endif %}</td>
         <td class="small"><span class="mono nowrap">{{ r.form_number or "" }}</span> {{ r.form_name or "" }}</td>
         <td><a href="/e/{{ e.id }}/c/{{ r.certificate_id }}">{{ r.source_file }}</a></td>
@@ -146,20 +147,21 @@
   {% set shown_certs = result.certificates|selectattr("status", "equalto", status)|list if status else result.certificates %}
   {% if status %}<p class="muted">Showing {{ shown_certs|length }} {{ status }} certificate{{ "s" if shown_certs|length != 1 }}. <a href="?tab=certificates">Show all</a></p>{% endif %}
   <div class="scroll"><table class="grid">
-    <thead><tr><th>File</th><th>Customer</th><th>Status</th><th>Form</th><th>Reading</th><th class="num">Rows</th><th>States</th><th>Review</th><th>Batch</th></tr></thead>
+    <thead><tr><th>File</th><th>Customer</th><th>Status</th><th>Completeness</th><th>Form</th><th>Reading</th><th class="num">Rows</th><th>States</th><th>Review</th><th>Batch</th></tr></thead>
     <tbody>
     {% for c in shown_certs|sort(attribute="cert.filename") %}
       <tr><td><a href="/e/{{ e.id }}/c/{{ c.cert.id }}">{{ c.cert.filename }}</a>
           {% if c.split_into %}<br><span class="small muted">held {{ c.split_into + 1 }} certificates</span>{% endif %}</td>
         <td>{{ c.customer }}</td>
         <td><span class="pill status-{{ c.status|lower }}" title="{{ c.status_reason }}">{{ c.status }}</span></td>
+        <td class="small {{ 'complete-ok' if c.completeness == 'Valid' else ('complete-bad' if c.completeness.startswith('Review') else '') }}">{{ c.completeness }}</td>
         <td class="small"><span class="mono nowrap">{{ c.extraction.form_number or "" if c.extraction }}</span> {{ c.extraction.form_name or "" if c.extraction }}</td>
         <td><span class="pill st-{{ c.cert.status }}">{{ c.cert.status }}</span></td>
         <td class="num">{{ c.rows|length }}</td>
         <td class="small">{{ c.rows|map(attribute="state")|unique|join(", ") }}</td>
         <td>{{ c.cert.review_status|replace("_", " ") }}</td>
         <td class="small">{{ c.cert.batch_label }}</td></tr>
-    {% else %}<tr><td colspan="9" class="muted">No certificates{{ " with this status" if status else " yet" }}.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="10" class="muted">No certificates{{ " with this status" if status else " yet" }}.</td></tr>{% endfor %}
     </tbody>
   </table></div>
 
@@ -241,6 +243,7 @@
       {% endif %}
     {% endfor %}
     <label>Flag certificates expiring within <input type="number" name="expiring_soon_days" value="{{ policy.expiring_soon_days }}" min="0" class="short"> days</label>
+    <label>Mark a form "Review for validity" when <input type="number" name="review_if_missing" value="{{ policy.review_if_missing }}" min="1" class="short"> or more items are missing (fewer are listed as "Missing: …")</label>
 
     <h3>Form acceptance</h3>
     <p class="small muted">A Streamlined (SST) certificate is flagged Invalid for any state that is not an SST member

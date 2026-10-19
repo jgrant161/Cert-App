@@ -9,6 +9,7 @@ Expects the sample client as client #1 and the vendor-portal sample as client #2
 
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -176,7 +177,7 @@ page = f"""<title>Certificate Review Demo</title>
   <a class="brand" href="#home">Certificate Review</a>
   <span class="mode">Preview with sample data</span>
 </header>
-<div class="preview-banner"><span><b>Read-only preview, updated October 12, 2026.</b> All names, numbers and rules are made up.</span>
+<div class="preview-banner"><span><b>Read-only preview, updated {date.today():%B} {date.today().day}, {date.today().year}.</b> All names, numbers and rules are made up.</span>
   <nav class="preview-nav" aria-label="Preview sections">
     <a href="#schedule" data-area="review">Certificate review</a>
     <a href="#portal" data-area="portal">Vendor portal: firm setup</a>

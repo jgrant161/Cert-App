@@ -27,12 +27,12 @@ def engagement_context(engagement: dict, result: EngagementResult, policy: Polic
     out.write(f"Client: {engagement['client_name']}\nSeller: {engagement.get('seller_name') or 'n/a'}\n")
     out.write(f"Review policy: {policy.as_dict()}\n\n")
 
-    out.write("## Schedule (customer, name on file, type, state, registration, status, status reason, signed date, "
-              "expires, expiration basis, form number, form name, source file, flags)\n")
+    out.write("## Schedule (customer, name on file, type, state, registration, status, status reason, completeness, "
+              "signed date, expires, expiration basis, form number, form name, source file, flags)\n")
     w = csv.writer(out)
     for r in result.rows:
         w.writerow([r.customer, r.company, r.certificate_type, r.state, r.registration, r.status, r.status_reason,
-                    r.signature_date, r.expires, r.expiration_basis, r.form_number, r.form_name, r.source_file,
+                    r.completeness, r.signature_date, r.expires, r.expiration_basis, r.form_number, r.form_name, r.source_file,
                     "|".join(dict.fromkeys(r.flags))])
 
     out.write("\n## Lines on forms that were not scheduled\n")
@@ -43,7 +43,7 @@ def engagement_context(engagement: dict, result: EngagementResult, policy: Polic
     for c in result.certificates:
         ex = c.extraction
         out.write(f"- {c.cert['filename']} [reading={c.cert['status']}, status={c.status} ({c.status_reason}), "
-                  f"customer={c.customer}, batch={c.cert.get('batch_label')}]")
+                  f"customer={c.customer}, completeness={c.completeness}, batch={c.cert.get('batch_label')}]")
         if ex:
             out.write(f" form_number={ex.form_number}; form_name={ex.form_name}; type={ex.certificate_type}; purchaser={ex.purchaser.name}; "
                       f"reason={ex.exemption_reason}; expires={ex.expiration_date}; signed={ex.signed}")

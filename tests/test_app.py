@@ -80,7 +80,8 @@ def test_full_engagement_flow():
     assert (acme["Form Number"], acme["Form Name"]) == ("CDTFA-230", "California Resale Certificate")
     assert sorted((row[0], row[3]) for row in sched) == [
         ("Acme Supply", "CA"), ("Brandster", "FL"), ("Collins", "NC"), ("Delta Tools", "TX")]
-    assert {"Status", "Expires", "Date Signed", "Seller Match", "Reviewer Note", "Flags"} <= set(header)
+    assert {"Status", "Completeness", "Product Description", "Expires", "Date Signed", "Seller Match", "Reviewer Note",
+            "Flags"} <= set(header)
     rh = [c.value for c in wb["Reconciliation"][1]]
     recon = [dict(zip(rh, row)) for row in wb["Reconciliation"].iter_rows(min_row=2, values_only=True)]
     assert recon[-1]["Source File"] == "TOTAL (4 certificates)" and recon[-1]["Rows"] == 4

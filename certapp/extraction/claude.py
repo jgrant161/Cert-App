@@ -43,6 +43,12 @@ certificate_type accordingly and record the basis cited.
 printed title separately. Many state forms print the number in a corner or footer; \
 multistate forms such as the MTC Uniform certificate often have no number.
 - Read every page. Use null for anything not on the document. Dates as YYYY-MM-DD.
+- Check each certificate for completeness. List in blank_fields every field the \
+form prints that was left empty or cannot be read: signature, date signed, \
+purchaser name and address, seller name, the description of the property or \
+products being purchased, reason for exemption, registration or ID number, and \
+any other field the form requires. Record the property description in \
+property_description when it is filled in.
 
 One file can hold more than one thing:
 - Return one certificate entry per separate certificate. Several state forms \

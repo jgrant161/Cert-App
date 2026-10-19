@@ -552,10 +552,11 @@ def create_app(extractor=None, ask_fn=None, microsoft_login=None) -> FastAPI:
             setattr(p, key, form.get(key) == "on")
         for key in TEXT_SETTINGS:
             setattr(p, key, (form.get(key) or "").strip()[:4000])
-        try:
-            p.expiring_soon_days = int(form.get("expiring_soon_days") or 90)
-        except ValueError:
-            pass
+        for key, default in (("expiring_soon_days", 90), ("review_if_missing", 3)):
+            try:
+                setattr(p, key, max(0 if key == "expiring_soon_days" else 1, int(form.get(key) or default)))
+            except ValueError:
+                pass
         db.save_policy(eid, p.as_dict())
         db.audit(user, "policy_changed", eid, json.dumps(p.as_dict()))
         return back(f"/e/{eid}?tab=policy")

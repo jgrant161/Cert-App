@@ -1,6 +1,6 @@
 # Build-out plan
 
-Updated October 12, 2026. This follows the phases in Steven's review of the demo. Phases 1 and 2
+Updated October 19, 2026. This follows the phases in Steven's review of the demo. Phases 1 and 2
 come first, because reminders and exposure analysis are only as good as the certificate data
 underneath them.
 
@@ -33,6 +33,7 @@ underneath them.
 | Importer sorts out the file on the first pass: split bundled certificates, flag non-certificate pages | Done | One row per certificate, tied to its pages; cover letters, W-9s and similar pages are listed and left off. Re-reading any part re-reads the whole file. Needs an AI read (demo mode reads filenames only). |
 | Confidence score on each extracted field | Done | Confidence for form, purchaser, seller, state lines, signature and expiration; medium and low are marked beside the field, and low ones are flagged for the reviewer. |
 | Merge customer name variants (Inc vs no Inc, parent vs subsidiary) | Done | Spelling variants join automatically; a Customers tab lets reviewers join parents, subsidiaries and trade names, and undo it. |
+| Completeness check (added October 19): note missing information on each form | Done | A Completeness column on screen and in Excel: "Valid", "Missing: …" listing what is blank (signature, date signed, buyer name or address, seller name, product description, registration number, exemption reason, other required fields), or "Review for validity" when three or more items are missing. A blank signature makes the certificate Invalid. |
 | Status, flags and reviewer notes in the Excel export | Done | On every Schedule row and in Reconciliation, plus a Customers tab and status counts on the Overview. |
 
 ## Phase 2: Database and audit trail (next)

@@ -63,25 +63,30 @@ def build_workbook(engagement: dict, result: EngagementResult, policy: Policy,
 
     # Schedule
     headers = ["Customer", "Name on Certificate", "Certificate Type", "State", "State Name", "Registration / ID",
-               "Status", "Status Reason", "Signed", "Date Signed", "Expires", "Expiration Basis",
-               "Exemption Reason", "Purchaser Address", "Seller on Certificate", "Seller Match",
+               "Status", "Status Reason", "Completeness", "Signed", "Date Signed", "Expires", "Expiration Basis",
+               "Exemption Reason", "Product Description", "Purchaser Address", "Seller on Certificate", "Seller Match",
                "Form Number", "Form Name", "Basis", "Batch", "Source File", "Flags", "Review", "Reviewer Note",
                "Notes"]
     ws = _sheet(wb, "Schedule", headers,
                 [[r.customer or r.company, r.name_on_certificate or r.company, r.certificate_type, r.state,
-                  STATES.get(r.state, ""), r.registration, r.status, r.status_reason, YES_NO[r.signed],
-                  r.signature_date, r.expires, r.expiration_basis, r.exemption_reason, r.purchaser_address,
+                  STATES.get(r.state, ""), r.registration, r.status, r.status_reason, r.completeness, YES_NO[r.signed],
+                  r.signature_date, r.expires, r.expiration_basis, r.exemption_reason, r.product_description,
+                  r.purchaser_address,
                   r.seller_on_certificate, r.seller_match, r.form_number, r.form_name,
                   BASIS_LABELS.get(r.basis, r.basis), r.batch, r.source_file, ", ".join(dict.fromkeys(r.flags)),
                   r.review_status.replace("_", " ").title(), r.reviewer_note, r.note] for r in rows],
-                [32, 32, 18, 7, 14, 22, 10, 40, 8, 12, 12, 30, 30, 36, 28, 14, 14, 36, 28, 16, 44, 34, 12, 40, 30])
+                [32, 32, 18, 7, 14, 22, 10, 40, 40, 8, 12, 12, 30, 30, 30, 36, 28, 14, 14, 36, 28, 16, 44, 34, 12, 40, 30])
     status_col = headers.index("Status") + 1
+    complete_col = headers.index("Completeness") + 1
     for i, r in enumerate(rows, start=2):
         fill = FILLS.get(r.basis) or (FILLS["flagged"] if r.flags else None)
         if fill:
             for cell in ws[i]:
                 cell.fill = fill
         ws.cell(row=i, column=status_col).fill = STATUS_FILLS[r.status]
+        ws.cell(row=i, column=complete_col).fill = (STATUS_FILLS["Valid"] if r.completeness == "Valid" else
+                                                    STATUS_FILLS["Invalid"] if r.completeness.startswith("Review")
+                                                    else STATUS_FILLS["Pending"])
 
     # Summaries
     by_state = result.by_state()
@@ -120,16 +125,17 @@ def build_workbook(engagement: dict, result: EngagementResult, policy: Policy,
     for c in sorted(result.certificates, key=lambda c: c.cert["filename"].lower()):
         ex = c.extraction
         recon.append([c.cert["filename"], c.cert.get("pages") or "", c.customer, c.cert.get("batch_label") or "",
-                      c.cert["status"], c.status, c.status_reason, ex.form_number if ex else None,
+                      c.cert["status"], c.status, c.status_reason, c.completeness, ex.form_number if ex else None,
                       ex.form_name if ex else None, len(c.rows), ", ".join(sorted({r.state for r in c.rows})),
                       (c.cert.get("review_status") or "").replace("_", " ").title(),
                       c.cert.get("reviewer_note") or "",
                       "; ".join(f"{f.code.replace('_', ' ')}: {f.message}" for f in c.flags if f.severity != "info")])
-    total_rows = sum(r[9] for r in recon)
-    recon.append([f"TOTAL ({len(recon)} certificates)", "", "", "", "", "", "", "", "", total_rows, "", "", "", ""])
+    total_rows = sum(r[10] for r in recon)
+    recon.append([f"TOTAL ({len(recon)} certificates)", "", "", "", "", "", "", "", "", "", total_rows, "", "", "", ""])
     _sheet(wb, "Reconciliation", ["Source File", "Pages", "Customer", "Batch", "Reading", "Status", "Status Reason",
-                                  "Form Number", "Form Name", "Rows", "States", "Review", "Reviewer Note", "Flags"],
-           recon, [60, 8, 32, 16, 12, 10, 40, 14, 36, 8, 40, 12, 50, 80])
+                                  "Completeness", "Form Number", "Form Name", "Rows", "States", "Review",
+                                  "Reviewer Note", "Flags"],
+           recon, [60, 8, 32, 16, 12, 10, 40, 40, 14, 36, 8, 40, 12, 50, 80])
 
     statuses = Counter(c.cert["status"] for c in result.certificates)
     _sheet(wb, "Batches", ["Batch", "Uploaded", "Files Received", "Added", "Already On File"],
@@ -146,9 +152,13 @@ def build_workbook(engagement: dict, result: EngagementResult, policy: Policy,
         ["Schedule rows", len(rows)],
         ["States", len(by_state)],
     ] + [[f"Certificates {s}", result.status_counts()[s]] for s in ("Valid", "Invalid", "Expired", "Pending")] + [
+        ["Forms complete", sum(c.completeness == "Valid" for c in result.certificates)],
+        ["Forms missing information", sum(c.completeness.startswith(("Missing", "Review")) for c in result.certificates)],
+    ] + [
         ["", ""],
         ["Review policy", ""],
     ] + [[label, "Yes" if getattr(policy, key) else "No"] for key, label in POLICY_LABELS.items()] + [
+        ["Missing items that mark a form Review for validity", policy.review_if_missing],
         ["Home-state number setting reversed in", policy.home_state_exceptions or "(none)"],
         ["FEIN setting reversed in", policy.fein_exceptions or "(none)"],
         ["States not accepting the MTC Uniform certificate", policy.uniform_not_accepted or "(none listed)"],

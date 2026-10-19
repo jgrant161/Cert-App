@@ -43,6 +43,7 @@
     {% macro conf(part) %}{% if fc.get(part) in ("medium", "low") %}<span class="conf conf-{{ fc[part] }}" title="Reader's confidence in this part">{{ fc[part] }} confidence</span>{% endif %}{% endmacro %}
     <h2>Document says</h2>
     <dl class="kv">
+      <dt>Completeness</dt><dd class="{{ 'complete-ok' if c.completeness == 'Valid' else ('complete-bad' if c.completeness.startswith('Review') else '') }}"><b>{{ c.completeness }}</b></dd>
       <dt>Customer</dt><dd>{{ c.customer }}</dd>
       <dt>Form number</dt><dd>{{ x.form_number or "—" }}{{ conf("form") }}</dd>
       <dt>Form name</dt><dd>{{ x.form_name or "—" }} ({{ x.form_family|replace("_", " ") }})</dd>
@@ -50,6 +51,7 @@
       <dt>Seller</dt><dd>{{ x.seller.name or "—" }}{{ conf("seller") }}
         {% if c.seller_match %}<span class="small {{ 'bad' if c.seller_match == 'Does not match' }}"> · {{ c.seller_match }}{% if e.seller_name %} ({{ e.seller_name }}){% endif %}</span>{% endif %}</dd>
       <dt>Type</dt><dd>{{ x.certificate_type|replace("_", " ") }}{% if x.exemption_reason %} — {{ x.exemption_reason }}{% endif %}</dd>
+      <dt>Products</dt><dd>{{ x.property_description or "No description filled in" }}</dd>
       <dt>Signed</dt><dd>{{ {True: "Yes", False: "No", None: "—"}[x.signed] }}{% if x.signature_date %} ({{ x.signature_date }}){% endif %}{{ conf("signature") }}</dd>
       <dt>Expires</dt><dd>{{ x.expiration_date or "No date stated" }}{{ conf("expiration") }}</dd>
       <dt>State lines</dt><dd>{{ x.jurisdiction_lines|length }} read{{ conf("registration_numbers") }}</dd>

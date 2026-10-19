@@ -88,6 +88,10 @@ class Extraction(BaseModel):
     seller: Party
     certificate_type: CertificateType
     exemption_reason: str | None
+    property_description: str | None = Field(
+        default=None,  # absent on readings saved before this field existed
+        description="What the purchaser says it will buy, as written on the form (e.g. 'Lighting fixtures for "
+                    "resale', 'All tangible personal property'). Null if left blank or the form has no such field")
     is_multistate: bool
     jurisdiction_lines: list[JurisdictionLine] = Field(
         description="For multistate forms: every state line printed on the form, including blank ones. "
@@ -103,6 +107,12 @@ class Extraction(BaseModel):
         description="1-based page numbers of the file that make up this certificate")
     field_confidence: FieldConfidence | None = Field(
         default=None, description="Confidence in each part of the reading")
+    blank_fields: list[str] = Field(
+        default_factory=list,  # empty on readings saved before this field existed
+        description="Fields printed on the form that were left blank or are illegible, named as the form "
+                    "names them (e.g. 'Purchaser signature', 'Date signed', 'Seller name', 'Description of "
+                    "property purchased', 'Reason for exemption'). Do not list optional fields or state lines "
+                    "on a multistate grid that the buyer did not claim")
     observations: list[str] = Field(
         description="Anything a reviewer should know: wrong form for the state, extra bundled "
                     "certificates on later pages, illegible areas, entries written outside the grid"

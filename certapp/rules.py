@@ -32,6 +32,7 @@ class Policy:
     schedule_content_duplicates: bool = True  # same buyer, form and numbers, different file
     schedule_expired: bool = True             # keep expired certificates on the schedule, marked Expired
     expiring_soon_days: int = 90
+    review_if_missing: int = 3                # this many missing items reads "Review for validity"
     home_state_exceptions: str = ""           # states where the home-state setting above is reversed
     fein_exceptions: str = ""                 # states where the FEIN setting above is reversed
     uniform_not_accepted: str = ""            # states that do not take the MTC Uniform certificate
@@ -144,6 +145,8 @@ class ScheduleRow:
     seller_match: str = ""                # Match | Does not match | Not stated | ""
     review_status: str = ""
     reviewer_note: str | None = None
+    completeness: str = ""                # Valid | Missing: ... | Review for validity: ...
+    product_description: str | None = None
 
 
 @dataclass
@@ -172,6 +175,8 @@ class CertificateResult:
     seller_match: str = ""
     other_pages: list[dict] = field(default_factory=list)
     split_into: int = 0           # further certificates found in this file
+    completeness: str = ""
+    missing: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -282,6 +287,69 @@ def customer_key(name: str | None) -> str:
 def _same_party(a: str | None, b: str | None) -> bool:
     ka, kb = customer_key(a), customer_key(b)
     return bool(ka and kb) and (ka == kb or ka in kb or kb in ka)
+
+
+# --- completeness ----------------------------------------------------------
+
+def _blank_field_name(text: str) -> str | None:
+    """Put a blank field the reader reported into the app's own words; None to ignore it."""
+    t = text.lower().strip()
+    if not t or "expir" in t:                 # no expiration date is normal
+        return None
+    if "seller" in t or "vendor" in t:
+        return "seller address" if "address" in t else "seller name"
+    if "date" in t:
+        return "date signed"
+    if "sign" in t:
+        return "signature"
+    if "address" in t:
+        return "buyer address"
+    if "name" in t and any(w in t for w in ("purchaser", "buyer", "customer", "business", "company")):
+        return "buyer name"
+    if any(w in t for w in ("registration", "permit", "account", "license", "id number", "tax id", "number")):
+        return "registration number"
+    if any(w in t for w in ("reason", "exemption type", "basis", "type of exemption")):
+        return "exemption reason"
+    if any(w in t for w in ("description", "property", "product", "item", "goods", "merchandise")):
+        return "product description"
+    return t[:60]
+
+
+def missing_items(ex: Extraction, non_resale: bool) -> list[str]:
+    """What the form is missing: checked from the reading, plus blank fields the reader reported."""
+    missing = []
+    if ex.signed is False:
+        missing.append("signature")
+    elif ex.signed is None:
+        missing.append("signature (unclear)")
+    if ex.signed is not False and not ex.signature_date:
+        missing.append("date signed")
+    if not ex.purchaser.name:
+        missing.append("buyer name")
+    if not ex.purchaser.address:
+        missing.append("buyer address")
+    if not ex.seller.name:
+        missing.append("seller name")
+    if not non_resale and not any(l.id_value for l in ex.jurisdiction_lines):
+        missing.append("registration number")
+    if non_resale and not ex.exemption_reason:
+        missing.append("exemption reason")
+    for raw in ex.blank_fields:
+        name = _blank_field_name(raw)
+        if name == "signature" and "signature (unclear)" in missing:
+            missing[missing.index("signature (unclear)")] = "signature"
+            continue
+        if name and name not in missing:
+            missing.append(name)
+    return missing
+
+
+def completeness_label(missing: list[str], policy: Policy) -> str:
+    if not missing:
+        return "Valid"
+    if len(missing) >= max(1, policy.review_if_missing):
+        return "Review for validity: missing " + ", ".join(missing)
+    return "Missing: " + ", ".join(missing)
 
 
 # --- engagement scoring ----------------------------------------------------
@@ -494,6 +562,14 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
                 seller_match = "Does not match"
                 flags.append(Flag("seller_mismatch", "follow_up",
                                   f"Made out to {ex.seller.name}, not {seller_name}"))
+    missing = missing_items(ex, non_resale) if real_read else []
+    completeness = completeness_label(missing, policy) if real_read else "Not checked (filled in from the filename)"
+    if "signature" in missing and ex.signed is not False:      # the reader saw an empty signature line
+        flags.append(Flag("unsigned", "follow_up", "Certificate is not signed"))
+    already = {"signature", "buyer name", "buyer address", "exemption reason"}   # flagged on their own
+    others = [m for m in missing if m not in already and not (m == "registration number" and not non_resale)]
+    if others:
+        flags.append(Flag("incomplete_form", "follow_up", "Missing on the form: " + ", ".join(others)))
     stated = _parse_date(ex.expiration_date)
     if stated and stated < today:
         flags.append(Flag("expired", "follow_up", f"Expired on its face ({stated.isoformat()})"))
@@ -521,6 +597,8 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
     pending = [f.message for f in flags if f.severity == "review" and f.code not in NOT_PENDING]
     if not real_read:
         pending.insert(0, "Filled in from the filename; not read")
+    elif missing:
+        pending.append(completeness)
     cert_invalid = [f.message for f in flags if f.code in INVALID_CODES]
     row_statuses: list[tuple[str, str]] = []
     kept_off: list[tuple[str, str]] = []      # states held off the schedule only because they expired
@@ -560,7 +638,7 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
             row_flags.append("expired")
         elif expires and expires <= today + timedelta(days=policy.expiring_soon_days):
             row_flags.append("expiring_soon")
-        row_pending = ([] if reviewed else list(pending)) + ([exp_basis] if undetermined and not reviewed else [])
+        row_pending = ([exp_basis] if undetermined and not reviewed else []) + ([] if reviewed else list(pending))
         if cert.get("status_override") in ("valid", "invalid"):
             status = (cert["status_override"].title(), "Set by reviewer")
         elif invalid:
@@ -602,6 +680,7 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
                 exemption_reason=ex.exemption_reason, purchaser_address=ex.purchaser.address,
                 seller_on_certificate=ex.seller.name, seller_match=seller_match,
                 review_status=cert.get("review_status") or "", reviewer_note=cert.get("reviewer_note"),
+                completeness=completeness, product_description=ex.property_description,
             ))
         elif line.classification not in ("blank",):
             excluded.append(ExcludedLine(cert["id"], company, line.state, line.raw_text,
@@ -628,7 +707,7 @@ def _score_certificate(cert: dict, ex: Extraction | None, policy: Policy,
         status = ("Valid", "")
     return CertificateResult(cert, ex, rows, excluded, _dedupe(flags), decisions, status[0], status[1],
                              company=company, seller_match=seller_match, other_pages=other_pages,
-                             split_into=split_into)
+                             split_into=split_into, completeness=completeness, missing=missing)
 
 
 def _dedupe(flags: list[Flag]) -> list[Flag]:

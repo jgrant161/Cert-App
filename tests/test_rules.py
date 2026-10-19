@@ -281,3 +281,51 @@ def test_customer_name_variants_merge_and_reviewer_joins():
     r = score(c, Policy(customer_aliases={"acme west": customer_key("Acme Supply")}))
     assert len({x.customer for x in r.rows}) == 1
     assert r.customers()[0]["states"] == {"CA", "TX", "NV"}
+
+
+# --- completeness ------------------------------------------------------------
+
+def completeness_of(result, cid=1):
+    return next(c for c in result.certificates if c.cert["id"] == cid).completeness
+
+
+def test_complete_form_reads_valid():
+    ex = full(extraction([line("CA", "SR-1")]), property_description="Lighting fixtures for resale")
+    r = score([cert(1, "A - Resale Certificate (CA).pdf", ex)])
+    assert completeness_of(r) == "Valid" and r.rows[0].completeness == "Valid"
+    assert r.rows[0].product_description == "Lighting fixtures for resale"
+
+
+def test_missing_items_are_listed():
+    ex = full(extraction([line("CA", "SR-1")]), seller=Party(name=None, address=None, state=None),
+              blank_fields=["Description of property purchased", "Expiration date"])
+    r = score([cert(1, "A - Resale Certificate (CA).pdf", ex)])
+    assert completeness_of(r) == "Missing: seller name, product description"
+    assert "incomplete_form" in codes(r, 1)
+    assert status_of(r, 1) == "Pending"            # until a reviewer accepts it
+
+
+def test_many_missing_items_read_review_for_validity():
+    ex = extraction([line("CA", "SR-1")], signed=False, purchaser=None).model_copy(update={
+        "seller": Party(name=None, address=None, state=None), "blank_fields": ["Purchaser signature", "Date"]})
+    r = score([cert(1, "A - Resale Certificate (CA).pdf", ex)])
+    label = completeness_of(r)
+    assert label.startswith("Review for validity: missing signature")
+    for item in ("buyer name", "buyer address", "seller name"):
+        assert item in label
+    assert label.count("signature") == 1
+    # The threshold is a review policy setting.
+    assert completeness_of(score([cert(1, "A - Resale Certificate (CA).pdf", ex)], Policy(review_if_missing=10))
+                           ).startswith("Missing:")
+
+
+def test_filename_only_readings_are_not_checked():
+    ex = extraction([line("CA", "SR-1")])
+    r = score([{**cert(1, "A - Resale Certificate (CA).pdf", ex), "extractor": "demo"}])
+    assert completeness_of(r).startswith("Not checked")
+
+
+def test_blank_signature_line_reported_by_reader_is_unsigned():
+    ex = full(extraction([line("FL", "78-1")], signed=None), blank_fields=["Purchaser signature"])
+    r = score([cert(1, "A - Resale Certificate (FL).pdf", ex)])
+    assert completeness_of(r) == "Missing: signature" and status_of(r, 1) == "Invalid"

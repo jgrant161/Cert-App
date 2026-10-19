@@ -157,3 +157,4 @@ a.pill { text-decoration: none; color: inherit; }
 /* keep wide tables and forms inside their card on narrow screens */
 .card { overflow-x: auto; }
 .split > * { min-width: 0; }
+.complete-bad { color: var(--red-text); font-weight: 600; }
